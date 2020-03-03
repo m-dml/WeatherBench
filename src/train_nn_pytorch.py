@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 from torch.utils.data.sampler import SubsetRandomSampler, SequentialSampler, BatchSampler
+import xarray as xr
 
 class Dataset(torch.utils.data.IterableDataset):
     r"""A class representing a :class:`Dataset`.
@@ -14,10 +15,12 @@ class Dataset(torch.utils.data.IterableDataset):
       dataset with non-integral indices/keys, a custom sampler must be provided.
     """
 
-    def __init__(self, ds, var_dict, lead_time, mean=None, std=None, load=False, start=None, end=None):
+    def __init__(self, ds, var_dict, lead_time, mean=None, std=None, load=False, 
+                 start=None, end=None, normalize=False):
         self.ds = ds
         self.var_dict = var_dict
         self.lead_time = lead_time
+        self.normalize=normalize
 
         if start is None or end is None:
             start = 0
@@ -38,7 +41,8 @@ class Dataset(torch.utils.data.IterableDataset):
         # Normalize
         self.mean = self.data.mean(('time', 'lat', 'lon')).compute() if mean is None else mean
         self.std = self.data.std('time').mean(('lat', 'lon')).compute() if std is None else std
-        #self.data_norm = (self.data - self.mean) / self.std
+        if self.normalize:
+            self.data = (self.data - self.mean) / self.std
         
         # According to S. Rasp, this has to go after computation of self.mean, self.std:
         if load: print('Loading data into RAM'); self.data.load()
