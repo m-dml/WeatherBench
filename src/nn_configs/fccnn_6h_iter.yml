@@ -1,7 +1,7 @@
 # NN config file
-datadir: /mnt/netdisk1/stephan/5.625deg/
-model_save_fn: /home/stephan/data/weather-benchmark/predictions/saved_models/fccnn_6h.h5
-pred_save_fn: /home/stephan/data/weather-benchmark/predictions/fccnn_6h_iter.nc
+datadir: /gpfs/work/nonnenma/data/forecast_predictability/weatherbench/5_625deg/
+model_save_fn: /gpfs/work/nonnenma/results/forecast_predictability/weatherbench/test_fccnn_6h.h5
+pred_save_fn: /gpfs/work/nonnenma/results/forecast_predictability/weatherbench/test_fccnn_6h_iter.nc
 vars: [z, t]
 filters: [64, 64, 64, 64, 2]
 kernels: [5, 5, 5, 5, 5]
