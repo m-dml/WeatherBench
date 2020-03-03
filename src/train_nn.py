@@ -8,12 +8,13 @@ from tensorflow.keras.layers import Input, Dropout, Conv2D, Lambda
 import tensorflow.keras.backend as K
 from configargparse import ArgParser
 
+tf.debugging.set_log_device_placement(True)
+
 def limit_mem():
     """Limit TF GPU mem usage"""
-    config = tf.ConfigProto()
+    config = tf.compat.v1.ConfigProto()
     config.gpu_options.allow_growth = True
-    tf.Session(config=config)
-
+    tf.compat.v1.Session(config=config)
 
 class DataGenerator(keras.utils.Sequence):
     def __init__(self, ds, var_dict, lead_time, batch_size=32, shuffle=True, load=True, mean=None, std=None):
@@ -99,17 +100,6 @@ class PeriodicConv2D(tf.keras.layers.Conv2D):
         inputs_padded = Lambda(self._pad)(inputs)
         return super().__call__(inputs_padded, *args, **kwargs)
 
-
-def build_cnn(filters, kernels, input_shape, activation='elu', dr=0):
-    """Fully convolutional network"""
-    x = input = Input(shape=input_shape)
-    for f, k in zip(filters[:-1], kernels[:-1]):
-        x = PeriodicConv2D(f, k, activation=activation)(x)
-        if dr > 0: x = Dropout(dr)(x)
-    output = PeriodicConv2D(filters[-1], kernels[-1])(x)
-    return keras.models.Model(input, output)
-
-
 def create_predictions(model, dg):
     """Create non-iterative predictions"""
     preds = model.predict_generator(dg)
@@ -135,7 +125,7 @@ def create_predictions(model, dg):
                 name=var
             ))
             lev_idx += nlevs
-    return xr.merge(das)
+    return xr.merge(das, compat='override')
 
 
 def create_iterative_predictions(model, dg, max_lead_time=5 * 24):
@@ -170,11 +160,11 @@ def create_iterative_predictions(model, dg, max_lead_time=5 * 24):
                 name=var
             ))
             lev_idx += nlevs
-    return xr.merge(das)
+    return xr.merge(das, compat='override')
 
-def create_cnn(filters, kernels, dropout=0., activation='elu', periodic=True):
+def create_cnn(filters, kernels, input_shape, dropout=0., activation='elu', periodic=True):
     assert len(filters) == len(kernels), 'Requires same number of filters and kernel_sizes.'
-    input = Input(shape=(None, None, 1,))
+    input = Input(shape=input_shape)
     x = input
     for f, k in zip(filters[:-1], kernels[:-1]):
         if periodic:
@@ -191,6 +181,15 @@ def create_cnn(filters, kernels, dropout=0., activation='elu', periodic=True):
     return model
 
 
+def build_cnn(filters, kernels, input_shape, activation='elu', dr=0):
+    """Fully convolutional network"""
+    x = input = Input(shape=input_shape)
+    for f, k in zip(filters[:-1], kernels[:-1]):
+        x = PeriodicConv2D(f, k, padding='valid', activation=activation)(x)        
+        if dr > 0: x = Dropout(dr)(x)
+    output = PeriodicConv2D(filters[-1], kernels[-1], padding='valid')(x)
+    return keras.models.Model(input, output)
+
 def main(datadir, vars, filters, kernels, lr, activation, dr, batch_size, patience, model_save_fn, pred_save_fn,
          train_years, valid_years, test_years, lead_time, gpu, iterative):
     os.environ["CUDA_VISIBLE_DEVICES"]=str(gpu)
@@ -201,7 +200,7 @@ def main(datadir, vars, filters, kernels, lr, activation, dr, batch_size, patien
     # TODO: Flexible input data
     z = xr.open_mfdataset(f'{datadir}geopotential_500/*.nc', combine='by_coords')
     t = xr.open_mfdataset(f'{datadir}temperature_850/*.nc', combine='by_coords')
-    ds = xr.merge([z, t], compat='override')  # Override level. discarded later anyway.
+    ds = xr.merge([z, t], compat='override')
 
     # TODO: Flexible valid split
     ds_train = ds.sel(time=slice(*train_years))
@@ -215,13 +214,22 @@ def main(datadir, vars, filters, kernels, lr, activation, dr, batch_size, patien
     dg_test =  DataGenerator(ds_test, dic, lead_time, batch_size=batch_size, mean=dg_train.mean,
                              std=dg_train.std, shuffle=False)
     print(f'Mean = {dg_train.mean}; Std = {dg_train.std}')
-
+    
     # Build model
     # TODO: Flexible input shapes and optimizer
-    model = build_cnn(filters, kernels, input_shape=(32, 64, len(vars)), activation=activation, dr=dr)
+    #model = build_cnn(filters, kernels, input_shape=(32, 64, len(vars)), activation=activation, dr=dr)
+    model = create_cnn(filters, kernels, input_shape=(32, 64, len(vars)), activation=activation, 
+                        dropout=dr, periodic=False)
     model.compile(keras.optimizers.Adam(lr), 'mse')
     print(model.summary())
 
+    print('model.outputs', model.outputs)
+    print('model.inputs', model.inputs)
+    print(dg_valid.ds)
+    print((dg_valid[0][0].shape, dg_valid[0][1].shape)) 
+    
+    print(model.predict(dg_valid[0][0]).shape)
+    
     # Train model
     # TODO: Learning rate schedule
     model.fit_generator(dg_train, epochs=100, validation_data=dg_valid,
@@ -245,7 +253,7 @@ def main(datadir, vars, filters, kernels, lr, activation, dr, batch_size, patien
     # TODO: Make flexible for other states
     z500_valid = load_test_data(f'{datadir}geopotential_500', 'z')
     t850_valid = load_test_data(f'{datadir}temperature_850', 't')
-    valid = xr.merge([z500_valid, t850_valid])
+    valid = xr.merge([z500_valid, t850_valid], compat='override')
     print(evaluate_iterative_forecast(pred, valid).load() if iterative else compute_weighted_rmse(pred, valid).load())
 
 if __name__ == '__main__':
@@ -271,6 +279,7 @@ if __name__ == '__main__':
     p.add_argument('--gpu', type=int, default=0, help='Which GPU')
     args = p.parse_args()
 
+    print(args.datadir)
     main(
         datadir=args.datadir,
         vars=args.vars,
