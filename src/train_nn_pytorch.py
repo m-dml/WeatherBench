@@ -67,7 +67,7 @@ class Dataset(torch.utils.data.IterableDataset):
             worker_id = worker_info.id
             iter_start = self.start + worker_id * per_worker
             iter_end = min(iter_start + per_worker, self.end)
-        idx = torch.randperm(iter_end-iter_start) + iter_start # torch for seed control
+        idx = torch.randperm(iter_end-iter_start).cpu() + iter_start # torch for seed control
         X = self.data.isel(time=idx).values
         y = self.data.isel(time=idx + self.lead_time).values
         return zip(X, y)
