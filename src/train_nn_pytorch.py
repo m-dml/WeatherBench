@@ -37,7 +37,7 @@ class Dataset(torch.utils.data.IterableDataset):
             except ValueError:
                 self.data.append(ds[var].expand_dims({'level': generic_level}, 1))
 
-        self.data = xr.concat(self.data, 'level').transpose('time', 'lat', 'lon', 'level')
+        self.data = xr.concat(self.data, 'level')#.transpose('time', 'lat', 'lon', 'level')
         # Normalize
         self.mean = self.data.mean(('time', 'lat', 'lon')).compute() if mean is None else mean
         self.std = self.data.std('time').mean(('lat', 'lon')).compute() if std is None else std
