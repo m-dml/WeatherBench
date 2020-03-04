@@ -43,6 +43,7 @@ class Dataset(torch.utils.data.IterableDataset):
         self.std = self.data.std('time').mean(('lat', 'lon')).compute() if std is None else std
         if self.normalize:
             self.data = (self.data - self.mean) / self.std
+        self.valid_time = self.data.isel(time=slice(lead_time, None)).time
         
         # According to S. Rasp, this has to go after computation of self.mean, self.std:
         if load: print('Loading data into RAM'); self.data.load()
