@@ -22,6 +22,12 @@ class Dataset(torch.utils.data.IterableDataset):
         self.lead_time = lead_time
         self.normalize=normalize
 
+        # indexing for __getitem__ and __iter__ assumes Z500, T850 are i=6, i=20, respectively
+        assert list(var_dict.keys())[:2] == ['z','t']
+        assert list(var_dict.items())[0][1].values[6] == 500.
+        assert len(list(var_dict.items())[0][1].values)==11        
+        assert list(var_dict.items())[0][1].values[9] == 850.
+
         if start is None or end is None:
             start = 0
             end = self.ds.time.isel(time=slice(0, -self.lead_time)).values.shape[0]
@@ -41,6 +47,11 @@ class Dataset(torch.utils.data.IterableDataset):
         # Normalize
         self.mean = self.data.mean(('time', 'lat', 'lon')).compute() if mean is None else mean
         self.std = self.data.std('time').mean(('lat', 'lon')).compute() if std is None else std
+
+        # for constants, compute std across space rather than time (which would be zero...)
+        idx = np.where(self.std.values==0)
+        self.std.values[idx] = self.data.std(('lat','lon')).mean('time').compute()[idx]
+                                             
         if self.normalize:
             self.data = (self.data - self.mean) / self.std
         self.valid_time = self.data.isel(time=slice(lead_time, None)).time
@@ -52,6 +63,7 @@ class Dataset(torch.utils.data.IterableDataset):
         'Generate one batch of data'
         idx = np.asarray(index)
         X = self.data.isel(time=idx).values
+        # assuming that first two xr.DataSets were geopotential & temperature (both 11 levels)!
         y = self.data.isel(time=idx + self.lead_time, level=[6,20]).values
         return X, y
 
@@ -70,6 +82,7 @@ class Dataset(torch.utils.data.IterableDataset):
             iter_end = min(iter_start + per_worker, self.end)
         idx = torch.randperm(iter_end-iter_start).cpu() + iter_start # torch for seed control
         X = self.data.isel(time=idx).values
+        # assuming that first two xr.DataSets were geopotential & temperature (both 11 levels)!
         y = self.data.isel(time=idx + self.lead_time, level=[6,20]).values
         return zip(X, y)
     
