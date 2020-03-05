@@ -2,8 +2,10 @@ import numpy as np
 import xarray as xr
 import torch
 from src.train_nn_pytorch import Dataset
+from torch.utils.data import RandomSampler
 
 if torch.cuda.is_available():
+    print('using CUDA !')
     device = torch.device("cuda")
     torch.set_default_tensor_type("torch.cuda.FloatTensor")
 else:
@@ -11,22 +13,34 @@ else:
     device = torch.device("cpu")
     torch.set_default_tensor_type("torch.FloatTensor")
 
-lead_time = 3*24
-var_dict = {'z': None, 't': None}
-batch_size = 32
-
 datadir = '/gpfs/work/nonnenma/data/forecast_predictability/weatherbench/5_625deg/'
 res_dir = '/gpfs/work/nonnenma/results/forecast_predictability/weatherbench/5_625deg/'
 
-z500 = xr.open_mfdataset(f'{datadir}geopotential_500/*.nc', combine='by_coords')
-t850 = xr.open_mfdataset(f'{datadir}temperature_850/*.nc', combine='by_coords')
-dataset_list = [z500, t850]
+# geopotential and tempearture each at 11 levels 
+# regression target is Z500 (level index i=6) and T850 (level index 9, stacked vector index 9+11=20)
+geop = xr.open_mfdataset(f'{datadir}geopotential/*.nc', combine='by_coords')
+temp = xr.open_mfdataset(f'{datadir}temperature/*.nc', combine='by_coords')
+
+# specific humidity, and wind component (u,v) volumes, each at 11 levels 
+sphq = xr.open_mfdataset(f'{datadir}specific_humidity/*.nc', combine='by_coords')
+cowu = xr.open_mfdataset(f'{datadir}u_component_of_wind/*.nc', combine='by_coords')
+cowv = xr.open_mfdataset(f'{datadir}v_component_of_wind/*.nc', combine='by_coords')
+
+# indicent solar radiation and cloud cover fields, each single-level
+tisr = xr.open_mfdataset(f'{datadir}toa_incident_solar_radiation/*.nc', combine='by_coords')
+clou = xr.open_mfdataset(f'{datadir}total_cloud_cover/*.nc', combine='by_coords')
+
+lead_time = 3*24
+var_dict = {'z': geop.level, 't': temp.level, 'q' : sphq.level, 'u' : cowu.level, 'v' : cowv.level,
+           'tisr' : None, 'tcc' : None}
+batch_size = 32
+
+dataset_list = [geop, temp, sphq, cowu, cowv, tisr, clou]
 x = xr.merge(dataset_list, compat='override')
-x = x.chunk({'time' : np.sum(x.chunks['time']), 'lat' : x.chunks['lat'], 'lon': x.chunks['lon']})
-n_channels = len(dataset_list) # = 1 if only loading one of geopotential Z500 and temperature T850
+x = x.chunk({'time' : np.sum(x.chunks['time']), 
+             'lat' : x.chunks['lat'], 'lon': x.chunks['lon'], 'level' : x.chunks['level']})
 
 # tbd: separating train and test datasets / loaders should be avoidable with the start/end arguments of Dataset!
-
 dg_train = Dataset(x.sel(time=slice('1979', '2015')), var_dict, lead_time, normalize=True)
 train_loader = torch.utils.data.DataLoader(
     dg_train,
@@ -40,11 +54,17 @@ validation_loader = torch.utils.data.DataLoader(
     batch_size=batch_size,
     drop_last=False)
 
+n_channels = len(dg_train.data.level.level)
+
+#z500 = xr.open_mfdataset(f'{datadir}geopotential_500/*.nc', combine='by_coords')
+#t850 = xr.open_mfdataset(f'{datadir}temperature_850/*.nc', combine='by_coords')
+
+
 ## define model
 
 from src.train_nn_pytorch import SimpleCNN
 
-net = SimpleCNN(filters=[64, 64, 64, 64, n_channels], kernels=[5, 5, 5, 5, 5], 
+net = SimpleCNN(filters=[64, 64, 64, 64, 2], kernels=[5, 5, 5, 5, 5], 
           channels=n_channels, activation=torch.nn.functional.elu, mode='circular')
 
 ## train model
@@ -89,7 +109,7 @@ while True:
         patience = max_patience
         best_loss = val_loss
         best_state_dict = deepcopy(net.state_dict())        
-        torch.save(best_state_dict, res_dir + 'test_fccnn_3d_pytorch.pt')
+        torch.save(best_state_dict, res_dir + '57D_fccnn_3d_pytorch.pt')
 
     else:
         patience -= 1

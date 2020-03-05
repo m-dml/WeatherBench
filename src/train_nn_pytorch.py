@@ -52,7 +52,7 @@ class Dataset(torch.utils.data.IterableDataset):
         'Generate one batch of data'
         idx = np.asarray(index)
         X = self.data.isel(time=idx).values
-        y = self.data.isel(time=idx + self.lead_time).values
+        y = self.data.isel(time=idx + self.lead_time, level=[6,20]).values
         return X, y
 
     # for large batch-sizes, this is orders of magnitures faster than for non-iterable Dataset()
@@ -70,7 +70,7 @@ class Dataset(torch.utils.data.IterableDataset):
             iter_end = min(iter_start + per_worker, self.end)
         idx = torch.randperm(iter_end-iter_start).cpu() + iter_start # torch for seed control
         X = self.data.isel(time=idx).values
-        y = self.data.isel(time=idx + self.lead_time).values
+        y = self.data.isel(time=idx + self.lead_time, level=[6,20]).values
         return zip(X, y)
     
     def __len__(self):
