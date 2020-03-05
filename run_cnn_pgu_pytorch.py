@@ -22,6 +22,7 @@ z500 = xr.open_mfdataset(f'{datadir}geopotential_500/*.nc', combine='by_coords')
 t850 = xr.open_mfdataset(f'{datadir}temperature_850/*.nc', combine='by_coords')
 dataset_list = [z500, t850]
 x = xr.merge(dataset_list, compat='override')
+x = x.chunk({'time' : np.sum(x.chunks['time']), 'lat' : x.chunks['lat'], 'lon': x.chunks['lon']})
 n_channels = len(dataset_list) # = 1 if only loading one of geopotential Z500 and temperature T850
 
 # tbd: separating train and test datasets / loaders should be avoidable with the start/end arguments of Dataset!
@@ -52,7 +53,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 from copy import deepcopy
 
-optimizer = optim.Adam(net.parameters(), lr=0.001)
+optimizer = optim.Adam(net.parameters(), lr=1e-4)
 
 n_epochs, max_patience = 200, 20
 losses, best_loss, patience = np.zeros(n_epochs), np.inf, max_patience
@@ -87,15 +88,15 @@ while True:
     if val_loss < best_loss:
         patience = max_patience
         best_loss = val_loss
-        best_state_dict = deepcopy(net.state_dict())
+        best_state_dict = deepcopy(net.state_dict())        
+        torch.save(best_state_dict, res_dir + 'test_fccnn_3d_pytorch.pt')
+
     else:
         patience -= 1
 
     if patience == 0:
         net.load_state_dict(best_state_dict)
         break
-        
-torch.save(net.state_dict(), res_dir + 'test_fccnn_3d_pytorch.pt')
 
 #net_rec = Net(filters=[64, 64, 64, 64, n_channels], kernels=[5, 5, 5, 5, 5], 
 #          channels=n_channels, activation=torch.nn.functional.elu)
