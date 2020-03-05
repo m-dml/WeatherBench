@@ -18,6 +18,7 @@ res_dir = '/gpfs/work/nonnenma/results/forecast_predictability/weatherbench/5_62
 
 lead_time = 5*24
 batch_size = 32
+save_fn = '9D_fccnn_5d_pytorch.pt'
 
 """
 # geopotential and tempearture each at 11 levels 
@@ -124,7 +125,7 @@ while True:
         patience = max_patience
         best_loss = val_loss
         best_state_dict = deepcopy(net.state_dict())        
-        torch.save(best_state_dict, res_dir + '9D_fccnn_5d_pytorch.pt')
+        torch.save(best_state_dict, res_dir + save_fn)
 
     else:
         patience -= 1
