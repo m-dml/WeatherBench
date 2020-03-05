@@ -16,7 +16,7 @@ else:
 datadir = '/gpfs/work/nonnenma/data/forecast_predictability/weatherbench/5_625deg/'
 res_dir = '/gpfs/work/nonnenma/results/forecast_predictability/weatherbench/5_625deg/'
 
-lead_time = 3*24
+lead_time = 5*24
 batch_size = 32
 
 """
@@ -124,7 +124,7 @@ while True:
         patience = max_patience
         best_loss = val_loss
         best_state_dict = deepcopy(net.state_dict())        
-        torch.save(best_state_dict, res_dir + '9D_fccnn_3d_pytorch.pt')
+        torch.save(best_state_dict, res_dir + '9D_fccnn_5d_pytorch.pt')
 
     else:
         patience -= 1
