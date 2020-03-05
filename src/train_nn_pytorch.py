@@ -1,6 +1,6 @@
 import numpy as np
 import torch
-from torch.utils.data.sampler import SubsetRandomSampler, SequentialSampler, BatchSampler
+import torch.nn.functional as F
 import xarray as xr
 
 class Dataset(torch.utils.data.IterableDataset):
@@ -75,3 +75,69 @@ class Dataset(torch.utils.data.IterableDataset):
     
     def __len__(self):
         return self.data.isel(time=slice(0, -self.lead_time)).shape[0]
+
+
+class PeriodicConv2D(torch.nn.Conv2d):
+    """ Implementing 2D convolutional layer with mixed zero- and circular padding.
+    Uses circular padding along last axis (W) and zero-padding on second-last axis (H)
+    
+    """
+    def conv2d_forward(self, input, weight):
+        if self.padding_mode == 'circular':
+            expanded_padding_circ = ( (self.padding[0] + 1) // 2, self.padding[0] // 2, 0, 0)
+            expanded_padding_zero = ( 0, 0, (self.padding[1] + 1) //2, self.padding[1] // 2 )
+            return F.conv2d(F.pad(F.pad(input, expanded_padding_circ, mode='circular'), 
+                                  expanded_padding_zero, mode='constant'),
+                            weight, self.bias, self.stride,
+                            (0,0), self.dilation, self.groups)
+        return F.conv2d(input, weight, self.bias, self.stride,
+                        self.padding, self.dilation, self.groups)
+
+class SimpleCNN(torch.nn.Module):
+    
+    def __init__(self, filters, kernels, channels, activation, mode='circular'):
+        super(SimpleCNN, self).__init__()
+        self.layers, in_ = [], channels
+        self.activation = activation
+        assert not np.any(kernels == 2), 'kernel size 2 not allowed for circular padding'
+        in_channels = [channels] + list(filters[:-1])
+        if mode=='circular':
+            self.layers = torch.nn.ModuleList([PeriodicConv2D(i, f, k, padding=(k-1, k-1),
+                            padding_mode='circular') for i,f,k in zip(in_channels, filters, kernels)])
+        else:
+            self.layers = torch.nn.ModuleList([torch.nn.Conv2d(i, f, k, padding=k//2) 
+                                               for i,f,k in zip(in_channels, filters, kernels)])
+            
+    def forward(self, x):
+        for layer in self.layers[:-1]:
+            x = self.activation(layer(x))
+        x = self.layers[-1](x)
+        return x
+
+def create_predictions(model, dg):
+    """Create non-iterative predictions"""
+    preds = model.forward(torch.tensor(dg[np.arange(dg.__len__())][0])).detach().numpy()
+    # Unnormalize
+    if dg.normalize:
+        preds = preds * dg.std.values[None,:,None,None] + dg.mean.values[None,:,None,None]
+    das = []
+    lev_idx = 0
+    for var, levels in dg.var_dict.items():
+        if levels is None:
+            das.append(xr.DataArray(
+                preds[:, lev_idx, :, :],
+                dims=['time', 'lat', 'lon'],
+                coords={'time': dg.valid_time, 'lat': dg.ds.lat, 'lon': dg.ds.lon},
+                name=var
+            ))
+            lev_idx += 1
+        else:
+            nlevs = len(levels)
+            das.append(xr.DataArray(
+                preds[:, lev_idx:lev_idx+nlevs, :, :],
+                dims=['time', 'level' 'lat', 'lon'],
+                coords={'time': dg.valid_time, 'level': dg.ds.level, 'lat': dg.ds.lat, 'lon': dg.ds.lon},
+                name=var
+            ))
+            lev_idx += nlevs
+    return xr.merge(das, compat='override')
