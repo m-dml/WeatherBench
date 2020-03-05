@@ -16,6 +16,10 @@ else:
 datadir = '/gpfs/work/nonnenma/data/forecast_predictability/weatherbench/5_625deg/'
 res_dir = '/gpfs/work/nonnenma/results/forecast_predictability/weatherbench/5_625deg/'
 
+lead_time = 3*24
+batch_size = 32
+
+"""
 # geopotential and tempearture each at 11 levels 
 # regression target is Z500 (level index i=6) and T850 (level index 9, stacked vector index 9+11=20)
 geop = xr.open_mfdataset(f'{datadir}geopotential/*.nc', combine='by_coords')
@@ -25,20 +29,34 @@ temp = xr.open_mfdataset(f'{datadir}temperature/*.nc', combine='by_coords')
 sphq = xr.open_mfdataset(f'{datadir}specific_humidity/*.nc', combine='by_coords')
 cowu = xr.open_mfdataset(f'{datadir}u_component_of_wind/*.nc', combine='by_coords')
 cowv = xr.open_mfdataset(f'{datadir}v_component_of_wind/*.nc', combine='by_coords')
+"""
 
 # indicent solar radiation and cloud cover fields, each single-level
 tisr = xr.open_mfdataset(f'{datadir}toa_incident_solar_radiation/*.nc', combine='by_coords')
 clou = xr.open_mfdataset(f'{datadir}total_cloud_cover/*.nc', combine='by_coords')
 
-lead_time = 3*24
-var_dict = {'z': geop.level, 't': temp.level, 'q' : sphq.level, 'u' : cowu.level, 'v' : cowv.level,
-           'tisr' : None, 'tcc' : None}
-batch_size = 32
+# constants: orography, land-sea mask, soil type, lat2d and lon2d (each single-level)
+cnst = xr.open_mfdataset(f'{datadir}constants/*.nc', combine='by_coords')
+template = tisr.tisr
+T = len(template.time.values)
+dataarrays = {}
+for var in [cnst.orography, cnst.lsm, cnst.slt, cnst.lat2d, cnst.lon2d]:
+    values = np.tile(var.values.reshape(1,*var.values.shape), (T, 1, 1)).astype(np.float32)
+    dataarrays[var.name] = xr.DataArray(values, coords=template.coords, dims=template.dims, 
+                                name=var.name,indexes=template.indexes)
+cnst = xr.Dataset(data_vars=dataarrays)
 
-dataset_list = [geop, temp, sphq, cowu, cowv, tisr, clou]
-x = xr.merge(dataset_list, compat='override')
+# geopotential and tempearture each at target pressure levels 
+z500 = xr.open_mfdataset(f'{datadir}geopotential_500/*.nc', combine='by_coords')
+t850 = xr.open_mfdataset(f'{datadir}temperature_850/*.nc', combine='by_coords')
+
+var_dict = {'z': None, 't': None, 'tisr' : None, 'tcc' : None, 
+            'orography' : None, 'lsm' : None, 'slt' : None, 'lat2d' : None, 'lon2d': None}
+dataset_list = [z500, t850, tisr, clou, cnst]
+
+x = xr.merge(dataset_list, compat='override', fill_value=0) # fill_value for tisr (missing first 7h of 1979) !
 x = x.chunk({'time' : np.sum(x.chunks['time']), 
-             'lat' : x.chunks['lat'], 'lon': x.chunks['lon'], 'level' : x.chunks['level']})
+             'lat' : x.chunks['lat'], 'lon': x.chunks['lon']})
 
 # tbd: separating train and test datasets / loaders should be avoidable with the start/end arguments of Dataset!
 dg_train = Dataset(x.sel(time=slice('1979', '2015')), var_dict, lead_time, normalize=True)
@@ -55,10 +73,7 @@ validation_loader = torch.utils.data.DataLoader(
     drop_last=False)
 
 n_channels = len(dg_train.data.level.level)
-
-#z500 = xr.open_mfdataset(f'{datadir}geopotential_500/*.nc', combine='by_coords')
-#t850 = xr.open_mfdataset(f'{datadir}temperature_850/*.nc', combine='by_coords')
-
+print('n_channels', n_channels)
 
 ## define model
 
@@ -109,7 +124,7 @@ while True:
         patience = max_patience
         best_loss = val_loss
         best_state_dict = deepcopy(net.state_dict())        
-        torch.save(best_state_dict, res_dir + '57D_fccnn_3d_pytorch.pt')
+        torch.save(best_state_dict, res_dir + '9D_fccnn_3d_pytorch.pt')
 
     else:
         patience -= 1
