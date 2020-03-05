@@ -22,11 +22,18 @@ class Dataset(torch.utils.data.IterableDataset):
         self.lead_time = lead_time
         self.normalize=normalize
 
-        # indexing for __getitem__ and __iter__ assumes Z500, T850 are i=6, i=20, respectively
+        # indexing for __getitem__ and __iter__ to find targets Z500, T850
         assert list(var_dict.keys())[:2] == ['z','t']
-        assert list(var_dict.items())[0][1].values[6] == 500.
-        assert len(list(var_dict.items())[0][1].values)==11        
-        assert list(var_dict.items())[0][1].values[9] == 850.
+        var_levels = list(var_dict.items())
+        if var_levels[0][1] is None and var_levels[1][1] is None:
+            # single level for z and t
+            self._target_idx = [0,1]
+        elif len(var_levels[0][1].values)==11:
+            assert var_levels[0][1].values[6] == 500.
+            assert var_levels[1][1].values[9] == 850.
+            self._target_idx = [6,20]
+        else:
+            raise NotImplementedError
 
         if start is None or end is None:
             start = 0
@@ -42,18 +49,17 @@ class Dataset(torch.utils.data.IterableDataset):
                 self.data.append(ds[var].sel(level=levels))
             except ValueError:
                 self.data.append(ds[var].expand_dims({'level': generic_level}, 1))
-
         self.data = xr.concat(self.data, 'level')#.transpose('time', 'lat', 'lon', 'level')
-        # Normalize
-        self.mean = self.data.mean(('time', 'lat', 'lon')).compute() if mean is None else mean
-        self.std = self.data.std('time').mean(('lat', 'lon')).compute() if std is None else std
 
-        # for constants, compute std across space rather than time (which would be zero...)
-        idx = np.where(self.std.values==0)
-        self.std.values[idx] = self.data.std(('lat','lon')).mean('time').compute()[idx]
-                                             
-        if self.normalize:
+        if self.normalize:            
+            self.mean = self.data.mean(('time', 'lat', 'lon')).compute() if mean is None else mean
+            self.std = self.data.std('time').mean(('lat', 'lon')).compute() if std is None else std
+            # for constants, compute std across space rather than time (which would be zero...)
+            idx = np.where(self.std.values==0)
+            if len(idx) > 0:
+                self.std.values[idx] = self.data.std(('lat','lon')).mean('time').compute()[idx]
             self.data = (self.data - self.mean) / self.std
+
         self.valid_time = self.data.isel(time=slice(lead_time, None)).time
         
         # According to S. Rasp, this has to go after computation of self.mean, self.std:
@@ -64,7 +70,7 @@ class Dataset(torch.utils.data.IterableDataset):
         idx = np.asarray(index)
         X = self.data.isel(time=idx).values
         # assuming that first two xr.DataSets were geopotential & temperature (both 11 levels)!
-        y = self.data.isel(time=idx + self.lead_time, level=[6,20]).values
+        y = self.data.isel(time=idx + self.lead_time, level=self._target_idx).values
         return X, y
 
     # for large batch-sizes, this is orders of magnitures faster than for non-iterable Dataset()
@@ -83,7 +89,7 @@ class Dataset(torch.utils.data.IterableDataset):
         idx = torch.randperm(iter_end-iter_start).cpu() + iter_start # torch for seed control
         X = self.data.isel(time=idx).values
         # assuming that first two xr.DataSets were geopotential & temperature (both 11 levels)!
-        y = self.data.isel(time=idx + self.lead_time, level=[6,20]).values
+        y = self.data.isel(time=idx + self.lead_time, level=self._target_idx).values
         return zip(X, y)
     
     def __len__(self):
@@ -127,15 +133,17 @@ class SimpleCNN(torch.nn.Module):
         x = self.layers[-1](x)
         return x
 
-def create_predictions(model, dg):
+def create_predictions(model, dg, var_dict={'z' : None, 't' : None}):
     """Create non-iterative predictions"""
     preds = model.forward(torch.tensor(dg[np.arange(dg.__len__())][0])).detach().numpy()
     # Unnormalize
     if dg.normalize:
-        preds = preds * dg.std.values[None,:,None,None] + dg.mean.values[None,:,None,None]
+        idx = dg._target_idx
+        preds = preds * dg.std.values[None,idx,None,None] + dg.mean.values[None,idx,None,None]
     das = []
     lev_idx = 0
-    for var, levels in dg.var_dict.items():
+    var_dict = dg.var_dict if var_dict is None else var_dict
+    for var, levels in var_dict.items():
         if levels is None:
             das.append(xr.DataArray(
                 preds[:, lev_idx, :, :],
