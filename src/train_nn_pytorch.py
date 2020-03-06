@@ -41,7 +41,7 @@ class Dataset(torch.utils.data.IterableDataset):
         assert end > start, "this example code only works with end >= start"
         self.start = start
         self.end = end
-        
+
         self.data = []
         generic_level = xr.DataArray([1], coords={'level': [1]}, dims=['level'])
         for var, levels in var_dict.items():
@@ -51,7 +51,7 @@ class Dataset(torch.utils.data.IterableDataset):
                 self.data.append(ds[var].expand_dims({'level': generic_level}, 1))
         self.data = xr.concat(self.data, 'level')#.transpose('time', 'lat', 'lon', 'level')
 
-        if self.normalize:            
+        if self.normalize:
             self.mean = self.data.mean(('time', 'lat', 'lon')).compute() if mean is None else mean
             self.std = self.data.std('time').mean(('lat', 'lon')).compute() if std is None else std
             # for constants, compute std across space rather than time (which would be zero...)
@@ -66,16 +66,16 @@ class Dataset(torch.utils.data.IterableDataset):
         if load: print('Loading data into RAM'); self.data.load()
 
     def __getitem__(self, index):
-        'Generate one batch of data'
+        """ Generate one batch of data """
         idx = np.asarray(index)
         X = self.data.isel(time=idx).values
-        # assuming that first two xr.DataSets were geopotential & temperature (both 11 levels)!
         y = self.data.isel(time=idx + self.lead_time, level=self._target_idx).values
         return X, y
 
     # for large batch-sizes, this is orders of magnitures faster than for non-iterable Dataset()
     # __iter__() based on Example 1 in documentation of torch.utils.data.IterableDataset
     def __iter__(self):
+        """ Return iterable over data in random order """
         worker_info = torch.utils.data.get_worker_info()
         if worker_info is None:  # single-process data loading, return the full iterator
             iter_start = self.start
@@ -86,9 +86,9 @@ class Dataset(torch.utils.data.IterableDataset):
             worker_id = worker_info.id
             iter_start = self.start + worker_id * per_worker
             iter_end = min(iter_start + per_worker, self.end)
+
         idx = torch.randperm(iter_end-iter_start).cpu() + iter_start # torch for seed control
         X = self.data.isel(time=idx).values
-        # assuming that first two xr.DataSets were geopotential & temperature (both 11 levels)!
         y = self.data.isel(time=idx + self.lead_time, level=self._target_idx).values
         return zip(X, y)
     
@@ -99,8 +99,9 @@ class Dataset(torch.utils.data.IterableDataset):
 class PeriodicConv2D(torch.nn.Conv2d):
     """ Implementing 2D convolutional layer with mixed zero- and circular padding.
     Uses circular padding along last axis (W) and zero-padding on second-last axis (H)
-    
+
     """
+    
     def conv2d_forward(self, input, weight):
         if self.padding_mode == 'circular':
             expanded_padding_circ = ( (self.padding[0] + 1) // 2, self.padding[0] // 2, 0, 0)
@@ -112,8 +113,13 @@ class PeriodicConv2D(torch.nn.Conv2d):
         return F.conv2d(input, weight, self.bias, self.stride,
                         self.padding, self.dilation, self.groups)
 
+
 class SimpleCNN(torch.nn.Module):
-    
+    """ Simple CNN module for image-to-image regression
+        Assumes image height and width are the same for input and output.
+        Note that default constructor uses PeriodicConv2D layers !
+    """
+
     def __init__(self, filters, kernels, channels, activation, mode='circular'):
         super(SimpleCNN, self).__init__()
         self.layers, in_ = [], channels
@@ -126,20 +132,29 @@ class SimpleCNN(torch.nn.Module):
         else:
             self.layers = torch.nn.ModuleList([torch.nn.Conv2d(i, f, k, padding=k//2) 
                                                for i,f,k in zip(in_channels, filters, kernels)])
-            
+
     def forward(self, x):
         for layer in self.layers[:-1]:
             x = self.activation(layer(x))
         x = self.layers[-1](x)
         return x
 
+
 def create_predictions(model, dg, var_dict={'z' : None, 't' : None}):
-    """Create non-iterative predictions"""
+    """Create non-iterative predictions
+    Base on create_predictions() function written by S. Rasp (for tensorflow v1.x): 
+    https://github.com/pangeo-data/WeatherBench/blob/ced939e20da0432bc816d64c34344e72f9b4cd17/src/train_nn.py#L113    
+    
+    We introduce the extra var_dict argument in case dg has more fields than just 'z' and 't'.
+    """
+
     preds = model.forward(torch.tensor(dg[np.arange(dg.__len__())][0])).detach().numpy()
+
     # Unnormalize
     if dg.normalize:
         idx = dg._target_idx
         preds = preds * dg.std.values[None,idx,None,None] + dg.mean.values[None,idx,None,None]
+
     das = []
     lev_idx = 0
     var_dict = dg.var_dict if var_dict is None else var_dict

@@ -16,9 +16,10 @@ else:
 datadir = '/gpfs/work/nonnenma/data/forecast_predictability/weatherbench/5_625deg/'
 res_dir = '/gpfs/work/nonnenma/results/forecast_predictability/weatherbench/5_625deg/'
 
+save_fn = '9D_fccnn_5d_pytorch.pt' # file name for saving/loading prediction model
+
 lead_time = 5*24
 batch_size = 32
-save_fn = '9D_fccnn_5d_pytorch.pt'
 
 """
 # geopotential and tempearture each at 11 levels 
@@ -32,7 +33,11 @@ cowu = xr.open_mfdataset(f'{datadir}u_component_of_wind/*.nc', combine='by_coord
 cowv = xr.open_mfdataset(f'{datadir}v_component_of_wind/*.nc', combine='by_coords')
 """
 
-# indicent solar radiation and cloud cover fields, each single-level
+# geopotential and tempearture each at target pressure levels 
+z500 = xr.open_mfdataset(f'{datadir}geopotential_500/*.nc', combine='by_coords')
+t850 = xr.open_mfdataset(f'{datadir}temperature_850/*.nc', combine='by_coords')
+
+# incident solar radiation and cloud cover fields, each single-level
 tisr = xr.open_mfdataset(f'{datadir}toa_incident_solar_radiation/*.nc', combine='by_coords')
 clou = xr.open_mfdataset(f'{datadir}total_cloud_cover/*.nc', combine='by_coords')
 
@@ -42,22 +47,27 @@ template = tisr.tisr
 T = len(template.time.values)
 dataarrays = {}
 for var in [cnst.orography, cnst.lsm, cnst.slt, cnst.lat2d, cnst.lon2d]:
+    # manipulating stride would be preferable over np.stride, but unsure if xarray accepts that
     values = np.tile(var.values.reshape(1,*var.values.shape), (T, 1, 1)).astype(np.float32)
     dataarrays[var.name] = xr.DataArray(values, coords=template.coords, dims=template.dims, 
                                 name=var.name,indexes=template.indexes)
 cnst = xr.Dataset(data_vars=dataarrays)
 
-# geopotential and tempearture each at target pressure levels 
-z500 = xr.open_mfdataset(f'{datadir}geopotential_500/*.nc', combine='by_coords')
-t850 = xr.open_mfdataset(f'{datadir}temperature_850/*.nc', combine='by_coords')
-
-var_dict = {'z': None, 't': None, 'tisr' : None, 'tcc' : None, 
-            'orography' : None, 'lsm' : None, 'slt' : None, 'lat2d' : None, 'lon2d': None}
-dataset_list = [z500, t850, tisr, clou, cnst]
-
-x = xr.merge(dataset_list, compat='override', fill_value=0) # fill_value for tisr (missing first 7h of 1979) !
+# merging different fields into single dataset (this can take long, and a lot of RAM!)
+x = xr.merge([z500, t850, tisr, clou, cnst], compat='override', fill_value=0) # fill_value for tisr !
 x = x.chunk({'time' : np.sum(x.chunks['time']), 
              'lat' : x.chunks['lat'], 'lon': x.chunks['lon']})
+
+# dictionary of used variables and their levels for Dataset() objects
+var_dict = {'z': None,          # target
+            't': None,          # target
+            'tisr' : None,      # extra field
+            'tcc' : None,       # extra field
+            'orography' : None, # constant
+            'lsm' : None,       # constant
+            'slt' : None,       # constant
+            'lat2d' : None,     # constant
+            'lon2d': None}      # constant
 
 # tbd: separating train and test datasets / loaders should be avoidable with the start/end arguments of Dataset!
 dg_train = Dataset(x.sel(time=slice('1979', '2015')), var_dict, lead_time, normalize=True)
@@ -76,12 +86,22 @@ validation_loader = torch.utils.data.DataLoader(
 n_channels = len(dg_train.data.level.level)
 print('n_channels', n_channels)
 
+
 ## define model
 
 from src.train_nn_pytorch import SimpleCNN
 
-net = SimpleCNN(filters=[64, 64, 64, 64, 2], kernels=[5, 5, 5, 5, 5], 
-          channels=n_channels, activation=torch.nn.functional.elu, mode='circular')
+filters = [64, 64, 64, 64, 2] # last '2' for Z500, T850
+kernels = [5, 5, 5, 5, 5]
+activation = torch.nn.functional.elu
+mode='circular'
+
+model = SimpleCNN(filters=filters,
+                  kernels=filters,
+                  channels=n_channels, 
+                  activation=activation, 
+                  mode=mode)
+
 
 ## train model
 
@@ -89,7 +109,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 from copy import deepcopy
 
-optimizer = optim.Adam(net.parameters(), lr=1e-4)
+optimizer = optim.Adam(model.parameters(), lr=1e-4)
 
 n_epochs, max_patience = 200, 20
 losses, best_loss, patience = np.zeros(n_epochs), np.inf, max_patience
@@ -106,7 +126,7 @@ while True:
     for batch in train_loader:
         optimizer.zero_grad()
         inputs, targets = batch[0].to(device), batch[1].to(device)
-        loss = F.mse_loss(net.forward(inputs), targets)
+        loss = F.mse_loss(model.forward(inputs), targets)
         loss.backward()
         optimizer.step()
 
@@ -116,7 +136,7 @@ while True:
         nb = 0
         for batch in validation_loader:
             inputs, targets = batch[0].to(device), batch[1].to(device)
-            val_loss += F.mse_loss(net.forward(inputs), targets)
+            val_loss += F.mse_loss(model.forward(inputs), targets)
             nb += 1
     val_loss /= nb
     print(f'epoch #{epoch} || loss (last batch) {loss} || validation loss {val_loss}')
@@ -124,16 +144,15 @@ while True:
     if val_loss < best_loss:
         patience = max_patience
         best_loss = val_loss
-        best_state_dict = deepcopy(net.state_dict())        
+        best_state_dict = deepcopy(model.state_dict()) # during early training will save every epoch
         torch.save(best_state_dict, res_dir + save_fn)
 
     else:
         patience -= 1
 
     if patience == 0:
-        net.load_state_dict(best_state_dict)
+        model.load_state_dict(best_state_dict)
         break
 
-#net_rec = Net(filters=[64, 64, 64, 64, n_channels], kernels=[5, 5, 5, 5, 5], 
-#          channels=n_channels, activation=torch.nn.functional.elu)
-#net_rec.load_state_dict(torch.load(res_dir + 'test_fccnn_3d_pytorch.pt'))
+torch.save(best_state_dict, res_dir + save_fn) # create savefile in case we never beat initial loss...
+        
