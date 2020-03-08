@@ -16,9 +16,9 @@ else:
 datadir = '/gpfs/work/nonnenma/data/forecast_predictability/weatherbench/5_625deg/'
 res_dir = '/gpfs/work/nonnenma/results/forecast_predictability/weatherbench/5_625deg/'
 
-model_fn = '2D_fcUnet_3d_pytorch.pt' # file name for saving/loading prediction model
+model_fn = '9D_fcUnet_5d_pytorch.pt' # file name for saving/loading prediction model
 
-lead_time = 3*24
+lead_time = 5*24
 batch_size = 32
 
 """
@@ -53,7 +53,7 @@ for var in [cnst.orography, cnst.lsm, cnst.slt, cnst.lat2d, cnst.lon2d]:
                                 name=var.name,indexes=template.indexes)
 cnst = xr.Dataset(data_vars=dataarrays)
 
-"""
+
 # merging different fields into single dataset (this can take long, and a lot of RAM!)
 x = xr.merge([z500, t850, tisr, clou, cnst], compat='override', fill_value=0) # fill_value for tisr !
 x = x.chunk({'time' : np.sum(x.chunks['time']), 
@@ -79,6 +79,7 @@ x = x.chunk({'time' : np.sum(x.chunks['time']),
 # dictionary of used variables and their levels for Dataset() objects
 var_dict = {'z': None,          # target
             't': None}          # target
+"""
 
 # tbd: separating train and test datasets / loaders should be avoidable with the start/end arguments of Dataset!
 dg_train = Dataset(x.sel(time=slice('1979', '2015')), var_dict, lead_time, normalize=True)
