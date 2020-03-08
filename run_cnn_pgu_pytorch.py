@@ -118,7 +118,6 @@ model = CircUNet(in_channels=n_channels,
                  mode=mode)
 
 print('total #parameters: ', np.sum([np.prod(item.shape) for item in model.state_dict().values()]))
-print('output shape: ', model.forward(torch.zeros((7,9,32,64))).shape)
 
 
 ## train model
@@ -163,7 +162,7 @@ while True:
         patience = max_patience
         best_loss = val_loss
         best_state_dict = deepcopy(model.state_dict()) # during early training will save every epoch
-        torch.save(best_state_dict, res_dir + save_fn)
+        torch.save(best_state_dict, res_dir + model_fn)
 
     else:
         patience -= 1
@@ -172,5 +171,5 @@ while True:
         model.load_state_dict(best_state_dict)
         break
 
-torch.save(best_state_dict, res_dir + save_fn) # create savefile in case we never beat initial loss...
+torch.save(best_state_dict, res_dir + model_fn) # create savefile in case we never beat initial loss...
         
