@@ -16,9 +16,9 @@ else:
 datadir = '/gpfs/work/nonnenma/data/forecast_predictability/weatherbench/5_625deg/'
 res_dir = '/gpfs/work/nonnenma/results/forecast_predictability/weatherbench/5_625deg/'
 
-save_fn = '9D_fccnn_5d_pytorch.pt' # file name for saving/loading prediction model
+save_fn = '9D_fcUnet_3d_pytorch.pt' # file name for saving/loading prediction model
 
-lead_time = 5*24
+lead_time = 3*24
 batch_size = 32
 
 """
@@ -89,18 +89,25 @@ print('n_channels', n_channels)
 
 ## define model
 
-from src.train_nn_pytorch import SimpleCNN
+from src.train_nn_pytorch import CircUNet
 
-filters = [64, 64, 64, 64, 2] # last '2' for Z500, T850
-kernels = [5, 5, 5, 5, 5]
+filters =  [ [32], [32], [32], [32]] 
+kernels =  [ [5],  [5], [5], [5] ]
+pooling = 2
+
 activation = torch.nn.functional.elu
 mode='circular'
+    
+model = CircUNet(in_channels=n_channels,
+                 filters=filters,
+                 kernels=kernels,
+                 pooling=pooling,
+                 activation=activation, 
+                 out_channels=2,
+                 mode=mode)
 
-model = SimpleCNN(filters=filters,
-                  kernels=filters,
-                  channels=n_channels, 
-                  activation=activation, 
-                  mode=mode)
+print('total #parameters: ', np.sum([np.prod(item.shape) for item in model.state_dict().values()]))
+print('output shape: ', model.forward(torch.zeros((7,9,32,64))).shape)
 
 
 ## train model
