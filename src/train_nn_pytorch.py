@@ -132,10 +132,11 @@ class SimpleCNN(torch.nn.Module):
         else:
             self.layers = torch.nn.ModuleList([torch.nn.Conv2d(i, f, k, padding=k//2) 
                                                for i,f,k in zip(in_channels, filters, kernels)])
+        self.bns = torch.nn.ModuleList([torch.nn.BatchNorm2d(i) for i in filters[:-1]])
 
     def forward(self, x):
-        for layer in self.layers[:-1]:
-            x = self.activation(layer(x))
+        for layer, bn in zip(self.layers[:-1], self.bns[:-1]):
+            x = bn(self.activation(layer(x)))
         x = self.layers[-1](x)
         return x
 
