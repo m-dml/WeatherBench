@@ -188,11 +188,12 @@ class Downscaler(torch.nn.Module):
             self.layers = [torch.nn.Conv2d(i, f, k, padding=k//2) for i,f,k in ziplist]
         self.layers = torch.nn.ModuleList(self.layers)
         self.pooling = torch.nn.MaxPool2d(pooling)
+        self.bns = torch.nn.ModuleList([torch.nn.BatchNorm2d(i) for i in filters])
         self.activation = activation
 
     def forward(self, x):
-        for layer in self.layers:
-            x = self.activation(layer(x))
+        for layer, bn in zip(self.layers, self.bns):            
+            x = bn(self.activation(layer(x)))
         return self.pooling(x), x
 
 
@@ -206,12 +207,13 @@ class Upscaler(torch.nn.Module):
         else:
             self.layers = [torch.nn.Conv2d(i, f, k, padding=k//2) for i,f,k in ziplist]
         self.layers = torch.nn.ModuleList(self.layers)
+        self.bns = torch.nn.ModuleList([torch.nn.BatchNorm2d(i) for i in filters])
         self.uplayer = torch.nn.ConvTranspose2d(filters[-1], out_channel, pooling, stride=2)
         self.activation = activation
 
     def forward(self, x, xskip):
-        for layer in self.layers:
-            x = self.activation(layer(x))
+        for layer, bn in zip(self.layers, self.bns):            
+            x = bn(self.activation(layer(x)))
         x = self.uplayer(x) 
         return torch.cat((x,xskip), axis=1) # Nx(C+Cskip)xHxW 
 
