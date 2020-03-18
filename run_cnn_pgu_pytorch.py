@@ -16,7 +16,7 @@ else:
 datadir = '/gpfs/work/nonnenma/data/forecast_predictability/weatherbench/5_625deg/'
 res_dir = '/gpfs/work/nonnenma/results/forecast_predictability/weatherbench/5_625deg/'
 
-use_fields = 'z_t' #'z_t_unilevel_const'
+use_fields = 'z_t_unilevel_const' # 'z_t', 'z_t_unilevel_const'
 model_name = 'tvfcnResnet50' # 'tv_fcn_resnet50', 'cnnbn', 'Unetbn'
 
 lead_time = 3*24
@@ -200,7 +200,6 @@ while True:
         optimizer.zero_grad()
         inputs, targets = batch[0].to(device), batch[1].to(device)
         loss = F.mse_loss(model_forward(inputs), targets)
-        print('computed minibatch loss')
         loss.backward()
         optimizer.step()
 
