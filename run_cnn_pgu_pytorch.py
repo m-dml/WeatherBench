@@ -16,8 +16,8 @@ else:
 datadir = '/gpfs/work/nonnenma/data/forecast_predictability/weatherbench/5_625deg/'
 res_dir = '/gpfs/work/nonnenma/results/forecast_predictability/weatherbench/5_625deg/'
 
-use_fields = 'z_t_unilevel_const' # 'z_t', 'z_t_unilevel_const'
-model_name = 'tvfcnResnet50' # 'tv_fcn_resnet50', 'cnnbn', 'Unetbn'
+use_fields = 'z_t' # 'z_t', 'z_t_unilevel_const'
+model_name = 'simpleResnet' # 'tv_fcn_resnet50', 'cnnbn', 'Unetbn'
 
 lead_time = 3*24
 batch_size = 32
@@ -166,12 +166,30 @@ elif model_name == 'tvfcnResnet50':
 
     def model_forward(input):
         return model.forward(input)['out'] # because reasons...
-        
+
+
+elif model_name == 'simpleResnet':
+    from src.train_nn_pytorch import FCNResNet
+    from torchvision.models.resnet import Bottleneck
+
+    model = FCNResNet(in_channels=n_channels,
+                      out_channels=2,
+                      block=Bottleneck, # basic ResNet block. 'Bottleneck' is 1x1 -> 3x3 -> 1x1 convs stacked  
+                      replace_stride_with_dilation=[True, True, True], # assures stride=1 through all layers
+                      layers=[4], # number of blocks per layer. len(layers) gives number of layers !
+                      nfilters = [64, 64, 128, 256, 512], # number of filters per layer
+                      kernel_size = 3 # kernel size for first conv layer
+                     )
+
+    def model_forward(input):
+        return model.forward(input)
+
 else: 
     raise NotImplementedError()
 
 print('total #parameters: ', np.sum([np.prod(item.shape) for item in model.state_dict().values()]))
 print('output shape: ', model_forward(torch.zeros((7,n_channels,32,64))).shape)
+#print(model)
 
 
 ## train model
@@ -206,7 +224,7 @@ while True:
         num_steps += 1
 
         # Track convergence on validation set.
-        if np.mod(num_setps, eval_every) == 0:
+        if np.mod(num_steps, eval_every) == 0:
             val_loss = 0
             with torch.no_grad():
                 nb = 0
