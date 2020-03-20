@@ -16,7 +16,7 @@ else:
 datadir = '/gpfs/work/nonnenma/data/forecast_predictability/weatherbench/5_625deg/'
 res_dir = '/gpfs/work/nonnenma/results/forecast_predictability/weatherbench/5_625deg/'
 
-use_fields = 'z_t' # 'z_t', 'z_t_unilevel_const'
+use_fields = 'z_t_unilevel_const' # 'z_t', 'z_t_unilevel_const'
 model_name = 'simpleResnet' # 'tv_fcn_resnet50', 'cnnbn', 'Unetbn'
 
 lead_time = 3*24
@@ -235,11 +235,11 @@ while True:
             val_loss /= nb
             print(f'epoch #{epoch} || loss (last batch) {loss} || validation loss {val_loss}')
 
-        if val_loss < best_loss:
-            patience = max_patience
-            best_loss = val_loss
-            best_state_dict = deepcopy(model.state_dict()) # during early training will save every epoch
-            torch.save(best_state_dict, res_dir + model_fn)
+            if val_loss < best_loss:
+                patience = max_patience
+                best_loss = val_loss
+                best_state_dict = deepcopy(model.state_dict()) # during early training will save every epoch
+                torch.save(best_state_dict, res_dir + model_fn)
 
         else:
             patience -= 1
