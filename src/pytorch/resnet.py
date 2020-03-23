@@ -1,6 +1,54 @@
 import torch
 from torchvision.models.resnet import ResNet
+from torchvision.models.resnet import Bottleneck
 from .layers import PeriodicConv2D
+
+
+
+def circConv3x3(in_planes, out_planes, stride=1, groups=1, dilation=1, kernel_size=3, bias=False, padding_mode='circular'):
+    """3x3 convolution with padding"""
+    return PeriodicConv2D(in_planes, out_planes, kernel_size=kernel_size, stride=stride,
+                     padding=kernel_size-1, groups=groups, bias=bias, dilation=dilation,
+                     padding_mode=padding_mode)
+
+class CircBlock(torch.nn.Module):
+    expansion = 1
+
+    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=1, kernel_size=3,
+                 base_width=64, dilation=1, norm_layer=None, padding_mode='circular'):
+        super(CircBlock, self).__init__()
+        if norm_layer is None:
+            norm_layer = torch.nn.BatchNorm2d
+        if groups != 1:
+            raise ValueError('CircBlock only supports groups=1')
+        if dilation > 1:
+            raise NotImplementedError("Dilation > 1 not supported in BasicBlock")
+        # Both self.conv1 and self.downsample layers downsample the input when stride != 1
+        self.conv1 = circConv3x3(inplanes, planes, stride, kernel_size=kernel_size, padding_mode=padding_mode)
+        self.bn1 = norm_layer(planes)
+        self.relu = torch.nn.ReLU(inplace=True)
+        self.conv2 = circConv3x3(planes, planes, kernel_size=kernel_size, padding_mode=padding_mode)
+        self.bn2 = norm_layer(planes)
+        self.downsample = downsample
+        self.stride = stride
+
+    def forward(self, x):
+        identity = x
+
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+
+        out = self.conv2(out)
+        out = self.bn2(out)
+
+        if self.downsample is not None:
+            identity = self.downsample(x)
+
+        out += identity
+        out = self.relu(out)
+
+        return out
 
 
 class FCNResNet(ResNet):
@@ -11,7 +59,7 @@ class FCNResNet(ResNet):
     def __init__(self, block, layers, zero_init_residual=False,
                  groups=1, width_per_group=64, replace_stride_with_dilation=None,
                  norm_layer=None, in_channels=1, out_channels=1, 
-                 nfilters=[64, 64, 128, 256, 512], kernel_size=3):
+                 nfilters=[64, 64, 128, 256, 512], kernel_size=3, padding_mode='zeros'):
         super(ResNet, self).__init__()
         if norm_layer is None:
             norm_layer = torch.nn.BatchNorm2d
@@ -29,8 +77,14 @@ class FCNResNet(ResNet):
         self.base_width = width_per_group
 
         self.inplanes = nfilters[0]
-        self.conv1 = torch.nn.Conv2d(in_channels, nfilters[0], kernel_size=kernel_size, 
-                                     stride=1, padding=(kernel_size-1)//2, bias=True)
+        #self.conv1 = torch.nn.Conv2d(in_channels, nfilters[0], kernel_size=kernel_size, 
+        #                             stride=1, padding=(kernel_size-1)//2, bias=True)
+        self.conv1 = PeriodicConv2D(in_channels, nfilters[0], kernel_size=kernel_size, 
+                                    stride=1,  padding=kernel_size-1, bias=True,
+                                    padding_mode=padding_mode)
+
+        
+        
         self.bn1 = norm_layer(nfilters[0])
         self.relu = torch.nn.ReLU(inplace=True)
 
@@ -45,7 +99,8 @@ class FCNResNet(ResNet):
             self.layer4 = self._make_layer(block, nfilters[4], layers[3], stride=2,
                                            dilate=replace_stride_with_dilation[2])
 
-        self.final = torch.nn.Conv2d(in_channels=4*nfilters[len(layers)-1], # why 4x?
+        expansion = 4 if block is Bottleneck else 1
+        self.final = torch.nn.Conv2d(in_channels=expansion*nfilters[len(layers)],
                                      out_channels=out_channels, 
                                      kernel_size=(1,1), 
                                      stride=1) 
