@@ -110,7 +110,7 @@ print('model filename', model_fn)
 
 
 if model_name == 'cnnbn':
-    from src.train_nn_pytorch import SimpleCNN
+    from src.pytorch.cnn import SimpleCNN
 
     filters = [64, 64, 64, 64, 2] # last '2' for Z500, T850
     kernels = [5, 5, 5, 5, 5]
@@ -127,7 +127,7 @@ if model_name == 'cnnbn':
         return model.forward(input)
 
 elif model_name == 'Unetbn':
-    from src.train_nn_pytorch import CircUNet
+    from src.pytorch.unet import CircUNet
 
     filters =  [ [32], [32], [32], [32]] 
     kernels =  [ [5],  [5], [5], [5] ]
@@ -169,9 +169,9 @@ elif model_name == 'tvfcnResnet50':
 
 
 elif model_name == 'simpleResnet':
-    from src.train_nn_pytorch import FCNResNet
+    """
+    from src.pytorch.resnet import FCNResNet
     from torchvision.models.resnet import Bottleneck
-
     model = FCNResNet(in_channels=n_channels,
                       out_channels=2,
                       block=Bottleneck, # basic ResNet block. 'Bottleneck' is 1x1 -> 3x3 -> 1x1 convs stacked  
@@ -180,9 +180,23 @@ elif model_name == 'simpleResnet':
                       nfilters = [64, 64, 128, 256, 512], # number of filters per layer
                       kernel_size = 3 # kernel size for first conv layer
                      )
-
+    """    
+    from src.pytorch.resnet import FCNResNet, CircBlock
+    layers = [13]
+    model = FCNResNet(in_channels=n_channels,
+                      out_channels=2,
+                      block=CircBlock, # basic ResNet block. 'Bottleneck' is 1x1 -> 3x3 -> 1x1 convs stacked  
+                      #replace_stride_with_dilation=[True, True, True], # assures stride=1 through all layers
+                      layers=layers, # number of blocks per layer. len(layers) gives number of layers !
+                      nfilters = [128, 128], # number of filters per layer
+                      kernel_size = 7, # kernel size for first conv layer
+                      dropout_rate = 0.1, 
+                      padding_mode='circular'
+                     )    
     def model_forward(input):
         return model.forward(input)
+    
+    model_name += '_' + str(2 + 2 * np.sum(layers)) # add layer count to model name
 
 else: 
     raise NotImplementedError()
@@ -205,7 +219,7 @@ best_loss, patience = np.inf, max_patience
 best_state_dict = {}
 
 epoch = 0
-num_steps, eval_every = 0, 10000
+num_steps, eval_every = 0, 2000
 model.train()
 while True:
 
@@ -251,6 +265,8 @@ while True:
 torch.save(best_state_dict, res_dir + model_fn) # create savefile in case we never beat initial loss...
 
 # model evaluation
+from src.train_nn_pytorch import create_predictions
+
 dg_test =  Dataset(x.sel(time=slice('2017', '2018')),
                    var_dict,
                    lead_time,
@@ -259,26 +275,18 @@ dg_test =  Dataset(x.sel(time=slice('2017', '2018')),
                    normalize=True,     # or else normalization is off!
                    randomize_order=False)
 
-test_loader = torch.utils.data.DataLoader(
-    dg_test, batch_size=batch_size, drop_last=False
-)
-
-model.eval() # e.g. for batch normalization layerspreds = []
-preds = []
-with torch.no_grad():
-    for i,batch in enumerate(test_loader):
-        #print('batch #' + str(i))
-        inputs = batch[0]
-        pred = model_forward(inputs)
-        preds += [pred]
-idx = dg_test._target_idx
-preds = np.concatenate(preds, axis=0) * dg_test.std.values[None,idx,None,None] + dg_test.mean.values[None,idx,None,None]
+preds = create_predictions(model,
+                           dg_test,
+                           var_dict={'z' : None, 't' : None},
+                           batch_size=100,
+                           model_forward=model_forward,
+                           verbose=True)
 
 from src.score import compute_weighted_rmse, load_test_data
 z500_test = load_test_data(f'{datadir}geopotential_500/', 'z')
 t850_test = load_test_data(f'{datadir}temperature_850/', 't')
-rmse_z = compute_weighted_rmse(preds[:,0,:,:], z500_test.isel(time=slice(lead_time, None))).load()
-rmse_t = compute_weighted_rmse(preds[:,1,:,:], t850_test.isel(time=slice(lead_time, None))).load()
+rmse_z = compute_weighted_rmse(preds.z, z500_test.isel(time=slice(lead_time, None))).load()
+rmse_t = compute_weighted_rmse(preds.t, t850_test.isel(time=slice(lead_time, None))).load()
 print('RMSE z', rmse_z.values); print('RMSE t', rmse_t.values)
 
 print('saving RMSE results to ' + res_dir + model_fn[:-3] + '_RMSE_zt.npy')
