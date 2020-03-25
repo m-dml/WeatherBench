@@ -18,7 +18,7 @@ with open(job_file, 'w') as fh:
     fh.writelines("#!/bin/tcsh\n")
     fh.writelines("#SBATCH --job-name=%s.job\n" % jn)
     fh.writelines("#SBATCH --partition=pGPU\n")
-    fh.writelines("#SBATCH --nodelist=g007\n")    
+    fh.writelines("#SBATCH --nodelist=g008\n")    
     fh.writelines("#SBATCH --time=24:00:00\n")
     fh.writelines("#SBATCH --output=jobs/%s.out\n" % jn)
     fh.writelines("#SBATCH --error=jobs/%s.err\n" % jn)
