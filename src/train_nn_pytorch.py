@@ -18,7 +18,7 @@ class Dataset(torch.utils.data.IterableDataset):
     def __init__(self, ds, var_dict, lead_time, mean=None, std=None, load=False, 
                  start=None, end=None, normalize=False, norm_subsample=1, randomize_order=True,
                  target_vars = ['geopotential', 'temperature'],
-                 target_levels = [500, 850]):
+                 target_levels = [500, 850], dtype=np.float32):
 
         self.ds = ds
         self.var_dict = var_dict
@@ -45,7 +45,7 @@ class Dataset(torch.utils.data.IterableDataset):
                 for var in params:
                     self.data.append(ds[var].expand_dims(
                         {'level': generic_level, 'time': ds.time}, (1, 0)
-                    ))
+                    ).astype(dtype))
                     self.level_names.append(var)
             else:
                 var, levels = params
