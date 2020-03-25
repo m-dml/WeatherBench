@@ -16,7 +16,6 @@ else:
 datadir = '/gpfs/work/nonnenma/data/forecast_predictability/weatherbench/5_625deg/'
 res_dir = '/gpfs/work/nonnenma/results/forecast_predictability/weatherbench/5_625deg/'
 
-use_fields = 'z_t_unilevel_const' # 'z_t', 'z_t_unilevel_const'
 model_name = 'simpleResnet' # 'simpleResnet', 'tvfcnResnet50', 'cnnbn', 'Unetbn'
 
 lead_time = 3*24
@@ -36,7 +35,8 @@ fill_value=0  # For the 'tisr' NaNs
 )
 x = x.chunk({'time' : np.sum(x.chunks['time']), 'lat' : x.chunks['lat'], 'lon': x.chunks['lon']})
 
-dg_train = Dataset(x.sel(time=slice('1979', '2015')), var_dict, lead_time, normalize=True, norm_subsample=30000)
+dg_train = Dataset(x.sel(time=slice('1979', '2015')), var_dict, lead_time, 
+                   normalize=True, norm_subsample=30000)
 train_loader = torch.utils.data.DataLoader(
     dg_train,
     batch_size=batch_size,
