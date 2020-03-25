@@ -1,7 +1,9 @@
-name: weatherbench
+name: wbtorch
 channels:
   - conda-forge
+  - pytorch
 dependencies:
+  - pip
   - python>=3.6
   - xarray
   - netcdf4
@@ -14,7 +16,7 @@ dependencies:
   - configargparse
   - tensorflow>=0.14
   - ipykernel  # so that we can install the env as a jupyter kernel
-  - torch
+  - pytorch
   - torchvision
   - cudatoolkit=10.1
   - pip:
