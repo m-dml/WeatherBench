@@ -164,15 +164,3 @@ def create_predictions(model, dg, var_dict={'z' : None, 't' : None}, batch_size=
             ))
             lev_idx += nlevs
     return xr.merge(das, compat='override')
-
-
-def init_torch_device():
-    if torch.cuda.is_available():
-        print('using CUDA !')
-        device = torch.device("cuda")
-        torch.set_default_tensor_type("torch.cuda.FloatTensor")
-    else:
-        print("CUDA not available")
-        device = torch.device("cpu")
-        torch.set_default_tensor_type("torch.FloatTensor")
-    return device
