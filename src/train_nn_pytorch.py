@@ -2,6 +2,7 @@ import numpy as np
 import torch
 import xarray as xr
 
+
 class Dataset(torch.utils.data.IterableDataset):
     r"""A class representing a :class:`Dataset`.
     
@@ -15,7 +16,10 @@ class Dataset(torch.utils.data.IterableDataset):
     """
 
     def __init__(self, ds, var_dict, lead_time, mean=None, std=None, load=False, 
-                 start=None, end=None, normalize=False, randomize_order=True):
+                 start=None, end=None, normalize=False, norm_subsample=1, randomize_order=True,
+                 target_vars = ['geopotential', 'temperature'],
+                 target_levels = [500, 850]):
+
         self.ds = ds
         self.var_dict = var_dict
         self.lead_time = lead_time
@@ -23,18 +27,9 @@ class Dataset(torch.utils.data.IterableDataset):
         self.randomize_order = randomize_order
 
         # indexing for __getitem__ and __iter__ to find targets Z500, T850
-        assert list(var_dict.keys())[:2] == ['z','t']
-        var_levels = list(var_dict.items())
-        if var_levels[0][1] is None and var_levels[1][1] is None:
-            # single level for z and t
-            self._target_idx = [0,1]
-        elif len(var_levels[0][1].values)==11:
-            assert var_levels[0][1].values[6] == 500.
-            assert var_levels[1][1].values[9] == 850.
-            self._target_idx = [6,20]
-        else:
-            raise NotImplementedError
-
+        assert np.all( var in var_dict.keys() for var in target_vars )
+        assert np.all( level in var_dict[var][1] for level, var in zip(target_levels, target_vars))
+        
         if start is None or end is None:
             start = 0
             end = self.ds.time.isel(time=slice(0, -self.lead_time)).values.shape[0]
@@ -43,24 +38,43 @@ class Dataset(torch.utils.data.IterableDataset):
         self.end = end
 
         self.data = []
+        self.level_names = []
         generic_level = xr.DataArray([1], coords={'level': [1]}, dims=['level'])
-        for var, levels in var_dict.items():
-            try:
-                self.data.append(ds[var].sel(level=levels))
-            except ValueError:
-                self.data.append(ds[var].expand_dims({'level': generic_level}, 1))
+        for long_var, params in var_dict.items():
+            if long_var == 'constants':
+                for var in params:
+                    self.data.append(ds[var].expand_dims(
+                        {'level': generic_level, 'time': ds.time}, (1, 0)
+                    ))
+                    self.level_names.append(var)
+            else:
+                var, levels = params
+                try:
+                    self.data.append(ds[var].sel(level=levels))
+                    self.level_names += [f'{var}_{level}' for level in levels]
+                except ValueError:
+                    self.data.append(ds[var].expand_dims({'level': generic_level}, 1))
+                    self.level_names.append(var)        
+
         self.data = xr.concat(self.data, 'level')#.transpose('time', 'lat', 'lon', 'level')
+        self.data['level_names'] = xr.DataArray(
+            self.level_names, dims=['level'], coords={'level': self.data.level})        
+        self.output_idxs = range(len(self.data.level))
 
         if self.normalize:
-            self.mean = self.data.mean(('time', 'lat', 'lon')).compute() if mean is None else mean
-            self.std = self.data.std('time').mean(('lat', 'lon')).compute() if std is None else std
-            # for constants, compute std across space rather than time (which would be zero...)
-            idx = np.where(self.std.values==0)
-            if len(idx) > 0:
-                self.std.values[idx] = self.data.std(('lat','lon')).mean('time').compute()[idx]
+            self.mean = self.data.isel(time=slice(0, None, norm_subsample)).mean(
+                ('time', 'lat', 'lon')).compute() if mean is None else mean
+            #         self.std = self.data.std('time').mean(('lat', 'lon')).compute() if std is None else std
+            self.std = self.data.isel(time=slice(0, None, norm_subsample)).std(
+                ('time', 'lat', 'lon')).compute() if std is None else std
             self.data = (self.data - self.mean) / self.std
-
+            
         self.valid_time = self.data.isel(time=slice(lead_time, None)).time
+        
+        self._target_idx = []
+        for level, var in zip(target_levels, target_vars):
+            target_name = var_dict[var][0] + '_' + str(level)
+            self._target_idx += [np.where(np.array(self.level_names)==target_name)[0][0]]
         
         # According to S. Rasp, this has to go after computation of self.mean, self.std:
         if load: print('Loading data into RAM'); self.data.load()

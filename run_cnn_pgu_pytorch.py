@@ -16,84 +16,34 @@ else:
 datadir = '/gpfs/work/nonnenma/data/forecast_predictability/weatherbench/5_625deg/'
 res_dir = '/gpfs/work/nonnenma/results/forecast_predictability/weatherbench/5_625deg/'
 
-use_fields = 'z_t' # 'z_t', 'z_t_unilevel_const'
-model_name = 'simpleResnet' # 'tv_fcn_resnet50', 'cnnbn', 'Unetbn'
+use_fields = 'z_t_unilevel_const' # 'z_t', 'z_t_unilevel_const'
+model_name = 'simpleResnet' # 'simpleResnet', 'tvfcnResnet50', 'cnnbn', 'Unetbn'
 
 lead_time = 3*24
 batch_size = 32
 
-"""
-# geopotential and temperature each at 11 levels 
-# regression target is Z500 (level index i=6) and T850 (level index 9, stacked vector index 9+11=20)
-geop = xr.open_mfdataset(f'{datadir}geopotential/*.nc', combine='by_coords')
-temp = xr.open_mfdataset(f'{datadir}temperature/*.nc', combine='by_coords')
+var_dict = {'geopotential': ('z', [100, 200, 500, 850, 1000]),
+           'temperature': ('t', [100, 200, 500, 850, 1000]),
+           'u_component_of_wind': ('u', [100, 200, 500, 850, 1000]), 
+           'v_component_of_wind': ('v', [100, 200, 500, 850, 1000]),
+           'constants': ['lsm','orography','lat2d']
+           }
 
-# specific humidity, and wind component (u,v) volumes, each at 11 levels 
-sphq = xr.open_mfdataset(f'{datadir}specific_humidity/*.nc', combine='by_coords')
-cowu = xr.open_mfdataset(f'{datadir}u_component_of_wind/*.nc', combine='by_coords')
-cowv = xr.open_mfdataset(f'{datadir}v_component_of_wind/*.nc', combine='by_coords')
-"""
+x = xr.merge(
+[xr.open_mfdataset(f'{datadir}/{var}/*.nc', combine='by_coords')
+ for var in var_dict.keys()],
+fill_value=0  # For the 'tisr' NaNs
+)
+x = x.chunk({'time' : np.sum(x.chunks['time']), 'lat' : x.chunks['lat'], 'lon': x.chunks['lon']})
 
-# geopotential and temperature each at target pressure levels 
-z500 = xr.open_mfdataset(f'{datadir}geopotential_500/*.nc', combine='by_coords')
-t850 = xr.open_mfdataset(f'{datadir}temperature_850/*.nc', combine='by_coords')
-
-# incident solar radiation and cloud cover fields, each single-level
-tisr = xr.open_mfdataset(f'{datadir}toa_incident_solar_radiation/*.nc', combine='by_coords')
-clou = xr.open_mfdataset(f'{datadir}total_cloud_cover/*.nc', combine='by_coords')
-
-# constants: orography, land-sea mask, soil type, lat2d and lon2d (each single-level)
-cnst = xr.open_mfdataset(f'{datadir}constants/*.nc', combine='by_coords')
-template = tisr.tisr
-T = len(template.time.values)
-dataarrays = {}
-for var in [cnst.orography, cnst.lsm, cnst.slt, cnst.lat2d, cnst.lon2d]:
-    # manipulating stride would be preferable over np.stride, but unsure if xarray accepts that
-    values = np.tile(var.values.reshape(1,*var.values.shape), (T, 1, 1)).astype(np.float32)
-    dataarrays[var.name] = xr.DataArray(values, coords=template.coords, dims=template.dims, 
-                                name=var.name,indexes=template.indexes)
-cnst = xr.Dataset(data_vars=dataarrays)
-
-if use_fields == 'z_t_unilevel_const':
-    # merging different fields into single dataset (this can take long, and a lot of RAM!)
-    x = xr.merge([z500, t850, tisr, clou, cnst], compat='override', fill_value=0) # fill_value for tisr !
-    x = x.chunk({'time' : np.sum(x.chunks['time']), 
-                 'lat' : x.chunks['lat'], 'lon': x.chunks['lon']})
-
-    # dictionary of used variables and their levels for Dataset() objects
-    var_dict = {'z': None,          # target
-                't': None,          # target
-                'tisr' : None,      # extra field
-                'tcc' : None,       # extra field
-                'orography' : None, # constant
-                'lsm' : None,       # constant
-                'slt' : None,       # constant
-                'lat2d' : None,     # constant
-                'lon2d': None}      # constant
-    
-elif use_fields == 'z_t':
-
-    # merging different fields into single dataset (this can take long, and a lot of RAM!)
-    x = xr.merge([z500, t850], compat='override', fill_value=0) # fill_value for tisr !
-    x = x.chunk({'time' : np.sum(x.chunks['time']), 
-                 'lat' : x.chunks['lat'], 'lon': x.chunks['lon']})
-
-    # dictionary of used variables and their levels for Dataset() objects
-    var_dict = {'z': None,          # target
-                't': None}          # target
-
-else:
-    raise NotImplementedError()
-
-# tbd: separating train and test datasets / loaders should be avoidable with the start/end arguments of Dataset!
-dg_train = Dataset(x.sel(time=slice('1979', '2015')), var_dict, lead_time, normalize=True)
+dg_train = Dataset(x.sel(time=slice('1979', '2015')), var_dict, lead_time, normalize=True, norm_subsample=30000)
 train_loader = torch.utils.data.DataLoader(
     dg_train,
     batch_size=batch_size,
     drop_last=True)
 
 dg_validation =  Dataset(x.sel(time=slice('2016', '2016')), var_dict, lead_time,
-                        mean=dg_train.mean, std=dg_train.std, normalize=True)
+                        mean=dg_train.mean, std=dg_train.std, normalize=True, randomize_order=False)
 validation_loader = torch.utils.data.DataLoader(
     dg_validation,
     batch_size=batch_size,
@@ -104,7 +54,6 @@ print('n_channels', n_channels)
 
 model_fn = f'{n_channels}D_fc{model_name}_{lead_time//24}d_pytorch.pt' # file name for saving/loading prediction model
 print('model filename', model_fn)
-
 
 ## define model
 
