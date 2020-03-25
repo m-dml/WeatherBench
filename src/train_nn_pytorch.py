@@ -45,7 +45,6 @@ class Dataset(torch.utils.data.IterableDataset):
                 for var in params:
                     self.data.append(ds[var].expand_dims(
                         {'level': generic_level, 'time': ds.time}, (1, 0)
-                        {'level': generic_level, 'time': ds.time}, (1, 0)
                     ).astype(dtype))
                     self.level_names.append(var)
             else:
