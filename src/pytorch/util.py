@@ -77,12 +77,13 @@ def named_network(model_name, n_channels):
                           kernel_size = 3 # kernel size for first conv layer
                          )
         """
+        layers = [13]
 
         model = FCNResNet(in_channels=n_channels,
                           out_channels=2,
                           block=CircBlock,  # basic ResNet block. 'Bottleneck' is 1x1 -> 3x3 -> 1x1 convs stacked
                           # replace_stride_with_dilation=[True, True, True], # assures stride=1 through all layers
-                          layers=[13],  # number of blocks per layer. len(layers) gives number of layers !
+                          layers=layers,  # number of blocks per layer. len(layers) gives number of layers !
                           nfilters=[128, 128],  # number of filters per layer
                           kernel_size=7,  # kernel size for first conv layer
                           dropout_rate=0.1,
