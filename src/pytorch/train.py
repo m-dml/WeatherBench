@@ -51,8 +51,8 @@ def train_model(model, train_loader, validation_loader, device, model_forward,
             loss.backward()
             optimizer.step()
 
-            training_loss[epoch - 1][batch_index] = loss.item()  # record training loss
-            assert np.isfinite(training_loss[-1])
+            training_loss[-1][batch_index] = loss.item()  # record training loss
+            assert np.isfinite(training_loss[-1][batch_index])
 
         # Track convergence on validation set
         validation_loss = np.append(validation_loss, calc_val_loss(validation_loader, model_forward, device))
