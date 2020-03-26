@@ -11,7 +11,7 @@ def calc_val_loss(validation_loader, model_forward, device):
         nb = 0
         for batch in validation_loader:
             inputs, targets = batch[0].to(device), batch[1].to(device)
-            val_loss += F.mse_loss(model_forward(inputs), targets)
+            val_loss += F.mse_loss(model_forward(inputs), targets).item()
             nb += 1
     return val_loss / nb
 
