@@ -78,7 +78,7 @@ training_outputs_filename = base_filename + '_training.npy'
 
 
 # build the network
-model, model_forward = named_network(model_name, n_channels)
+model, model_forward = named_network(model_name, n_channels, len(target_vars))
 
 
 if test_batch_speed:

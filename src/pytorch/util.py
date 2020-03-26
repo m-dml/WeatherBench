@@ -18,12 +18,12 @@ def init_torch_device():
     return device
 
 
-def named_network(model_name, n_channels):
+def named_network(model_name, n_input_channels, n_output_channels):
     if model_name == 'cnnbn':
 
-        model = SimpleCNN(filters=[64, 64, 64, 64, 2],  # last '2' for Z500, T850
+        model = SimpleCNN(filters=[64, 64, 64, 64, n_output_channels],  # last '2' for Z500, T850
                           kernels=[5, 5, 5, 5, 5],
-                          channels=n_channels,
+                          channels=n_input_channels,
                           activation=torch.nn.functional.elu,
                           mode='circular')
 
@@ -32,12 +32,12 @@ def named_network(model_name, n_channels):
 
     elif model_name == 'Unetbn':
 
-        model = CircUNet(in_channels=n_channels,
+        model = CircUNet(in_channels=n_input_channels,
                          filters=[[32], [32], [32], [32]],
                          kernels=[[5], [5], [5], [5]],
                          pooling=2,
                          activation=torch.nn.functional.elu,
-                         out_channels=2,
+                         out_channels=n_output_channels,
                          mode='circular')
 
         def model_forward(input):
@@ -51,12 +51,12 @@ def named_network(model_name, n_channels):
 
         # modify input layer (torchvision ResNet expects 3 input channels)
         model._modules['backbone']['conv1'] = torch.nn.Conv2d(
-            in_channels=n_channels, out_channels=64,
+            in_channels=n_input_channels, out_channels=64,
             kernel_size=(k, k), stride=1, padding=(k + 1) // 2
         )
         # modify output layer (torchvision ResNet predicts 21 output channels)
         model._modules['classifier'][-1] = torch.nn.Conv2d(
-            in_channels=512, out_channels=2,
+            in_channels=512, out_channels=n_output_channels,
             kernel_size=(k, k), stride=1, padding=(k + 1) // 2
         )
 
@@ -69,7 +69,7 @@ def named_network(model_name, n_channels):
         from src.pytorch.resnet import FCNResNet
         from torchvision.models.resnet import Bottleneck
         model = FCNResNet(in_channels=n_channels,
-                          out_channels=2,
+                          out_channels=n_output_channels
                           block=Bottleneck, # basic ResNet block. 'Bottleneck' is 1x1 -> 3x3 -> 1x1 convs stacked  
                           replace_stride_with_dilation=[True, True, True], # assures stride=1 through all layers
                           layers=[4], # number of blocks per layer. len(layers) gives number of layers !
@@ -79,8 +79,8 @@ def named_network(model_name, n_channels):
         """
         layers = [13]
 
-        model = FCNResNet(in_channels=n_channels,
-                          out_channels=2,
+        model = FCNResNet(in_channels=n_input_channels,
+                          out_channels=n_output_channels,
                           block=CircBlock,  # basic ResNet block. 'Bottleneck' is 1x1 -> 3x3 -> 1x1 convs stacked
                           # replace_stride_with_dilation=[True, True, True], # assures stride=1 through all layers
                           layers=layers,  # number of blocks per layer. len(layers) gives number of layers !
