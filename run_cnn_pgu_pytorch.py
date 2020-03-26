@@ -35,8 +35,8 @@ fill_value=0  # For the 'tisr' NaNs
 )
 x = x.chunk({'time' : np.sum(x.chunks['time']), 'lat' : x.chunks['lat'], 'lon': x.chunks['lon']})
 
-dg_train = Dataset(x.sel(time=slice('1979', '2015')), var_dict, lead_time, 
-                   normalize=True, norm_subsample=30000)
+dg_train = Dataset(x.sel(time=slice(train_years[0], train_years[1])), var_dict, lead_time, 
+                   normalize=True, norm_subsample=1, res_dir=res_dir, train_years=train_years)
 train_loader = torch.utils.data.DataLoader(
     dg_train,
     batch_size=batch_size,
