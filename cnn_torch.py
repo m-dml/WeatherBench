@@ -77,13 +77,6 @@ model_filename = base_filename + '.pt' # file name for saving/loading prediction
 training_outputs_filename = base_filename + '_training.npy'
 
 
-n_channels = len(D_train.data.level.level)
-print(f'{n_channels} total input channels')
-base_filename = f'{n_channels}D_fc{model_name}_{lead_time//24}d_pytorch' # file name for saving/loading prediction model
-model_filename = base_filename + '.pt' # file name for saving/loading prediction model
-training_outputs_filename = base_filename + '_training.npy'
-
-
 # build the network
 model, model_forward = named_network(model_name, n_channels)
 
