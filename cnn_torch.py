@@ -84,6 +84,10 @@ model_filename = base_filename + '.pt' # file name for saving/loading prediction
 training_outputs_filename = base_filename + '_training.npy'
 
 
+# build the network
+model, model_forward = named_network(model_name, n_channels)
+
+
 if test_batch_speed:
     from time import time
     t0 = time()
