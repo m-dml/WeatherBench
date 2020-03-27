@@ -66,7 +66,7 @@ def train_model(model, train_loader, validation_loader, device, model_forward, l
                                             calc_val_loss(validation_loader, model_forward, device)
                                            )
                 if verbose:
-                    print(f'epoch #{epoch} || loss (last batch) {loss} || validation loss {validation_loss}')
+                    print(f'epoch #{epoch} || loss (last batch) {loss} || validation loss {validation_loss[-1]}')
 
                 if validation_loss[-1] < best_loss:
                     patience, lr_patience = max_patience, max_lr_patience
