@@ -1,17 +1,10 @@
 import numpy as np
 import xarray as xr
 import torch
-from src.train_nn_pytorch import Dataset
-from torch.utils.data import RandomSampler
+from src.pytorch.Dataset import Dataset
+from src.pytorch.util import init_torch_device
 
-if torch.cuda.is_available():
-    print('using CUDA !')
-    device = torch.device("cuda")
-    torch.set_default_tensor_type("torch.cuda.FloatTensor")
-else:
-    print("CUDA not available")
-    device = torch.device("cpu")
-    torch.set_default_tensor_type("torch.FloatTensor")
+device = init_torch_device()
 
 datadir = '/gpfs/work/nonnenma/data/forecast_predictability/weatherbench/5_625deg/'
 res_dir = '/gpfs/work/nonnenma/results/forecast_predictability/weatherbench/5_625deg/'
@@ -29,6 +22,8 @@ var_dict = {'geopotential': ('z', [100, 200, 500, 850, 1000]),
            'v_component_of_wind': ('v', [100, 200, 500, 850, 1000]),
            'constants': ['lsm','orography','lat2d']
            }
+target_vars = ['geopotential', 'temperature']
+target_levels = [500, 850]
 
 x = xr.merge(
 [xr.open_mfdataset(f'{datadir}/{var}/*.nc', combine='by_coords')
@@ -38,7 +33,8 @@ fill_value=0  # For the 'tisr' NaNs
 x = x.chunk({'time' : np.sum(x.chunks['time']), 'lat' : x.chunks['lat'], 'lon': x.chunks['lon']})
 
 dg_train = Dataset(x.sel(time=slice(train_years[0], train_years[1])), var_dict, lead_time, 
-                   normalize=True, norm_subsample=1, res_dir=res_dir, train_years=train_years)
+                   normalize=True, norm_subsample=1, res_dir=res_dir, train_years=train_years,
+                   target_vars=target_vars, target_levels=target_levels)
 
 train_loader = torch.utils.data.DataLoader(
     dg_train,
@@ -46,7 +42,8 @@ train_loader = torch.utils.data.DataLoader(
     drop_last=True)
 
 dg_validation =  Dataset(x.sel(time=slice('2016', '2016')), var_dict, lead_time,
-                        mean=dg_train.mean, std=dg_train.std, normalize=True, randomize_order=False)
+                        mean=dg_train.mean, std=dg_train.std, normalize=True, randomize_order=False,
+                        target_vars=target_vars, target_levels=target_levels)
 validation_loader = torch.utils.data.DataLoader(
     dg_validation,
     batch_size=batch_size,
@@ -55,186 +52,41 @@ validation_loader = torch.utils.data.DataLoader(
 n_channels = len(dg_train.data.level.level)
 print('n_channels', n_channels)
 
-#model_fn = f'{n_channels}D_fc{model_name}_{lead_time//24}d_pytorch.pt' # file name for saving/loading prediction model
-model_fn = f'{n_channels}D_fc{model_name}_{lead_time//24}d_pytorch_lrdecay_weightdecay_normed_test.pt' # file name for saving/loading prediction model
+model_fn = f'{n_channels}D_fc{model_name}_{lead_time//24}d_pytorch_lrdecay_weightdecay_normed_test2.pt' # file name for saving/loading prediction model
 print('model filename', model_fn)
 
+
 ## define model
+from src.pytorch.util import named_network
 
-
-if model_name == 'cnnbn':
-    from src.pytorch.cnn import SimpleCNN
-
-    filters = [64, 64, 64, 64, 2] # last '2' for Z500, T850
-    kernels = [5, 5, 5, 5, 5]
-    activation = torch.nn.functional.elu
-    mode='circular'
-
-    model = SimpleCNN(filters=filters,
-                      kernels=kernels,
-                      channels=n_channels, 
-                      activation=activation, 
-                      mode=mode)
-
-    def model_forward(input):
-        return model.forward(input)
-
-elif model_name == 'Unetbn':
-    from src.pytorch.unet import CircUNet
-
-    filters =  [ [32], [32], [32], [32]] 
-    kernels =  [ [5],  [5], [5], [5] ]
-    pooling = 2
-
-    activation = torch.nn.functional.elu
-    mode='circular'
-
-    model = CircUNet(in_channels=n_channels,
-                     filters=filters,
-                     kernels=kernels,
-                     pooling=pooling,
-                     activation=activation, 
-                     out_channels=2,
-                     mode=mode)
-    
-    def model_forward(input):
-        return model.forward(input)
-
-elif model_name == 'tvfcnResnet50':
-    import torchvision
-    k = 3
-    
-    model = torchvision.models.segmentation.fcn_resnet50(pretrained=False)
-
-    # modify input layer (torchvision ResNet expects 3 input channels)
-    model._modules['backbone']['conv1'] = torch.nn.Conv2d(
-                                              in_channels=n_channels, out_channels=64,
-                                              kernel_size=(k,k), stride=1, padding=(k+1)//2
-                                              )
-    # modify output layer (torchvision ResNet predicts 21 output channels)
-    model._modules['classifier'][-1] = torch.nn.Conv2d(
-                                              in_channels=512, out_channels=2,
-                                              kernel_size=(k,k), stride=1, padding=(k+1)//2
-                                              )    
-
-    def model_forward(input):
-        return model.forward(input)['out'] # because reasons...
-
-
-elif model_name == 'simpleResnet':
-    """
-    from src.pytorch.resnet import FCNResNet
-    from torchvision.models.resnet import Bottleneck
-    model = FCNResNet(in_channels=n_channels,
-                      out_channels=2,
-                      block=Bottleneck, # basic ResNet block. 'Bottleneck' is 1x1 -> 3x3 -> 1x1 convs stacked  
-                      replace_stride_with_dilation=[True, True, True], # assures stride=1 through all layers
-                      layers=[4], # number of blocks per layer. len(layers) gives number of layers !
-                      nfilters = [64, 64, 128, 256, 512], # number of filters per layer
-                      kernel_size = 3 # kernel size for first conv layer
-                     )
-    """    
-    from src.pytorch.resnet import FCNResNet, CircBlock
-    layers = [13]
-    model = FCNResNet(in_channels=n_channels,
-                      out_channels=2,
-                      block=CircBlock, # basic ResNet block. 'Bottleneck' is 1x1 -> 3x3 -> 1x1 convs stacked  
-                      #replace_stride_with_dilation=[True, True, True], # assures stride=1 through all layers
-                      layers=layers, # number of blocks per layer. len(layers) gives number of layers !
-                      nfilters = [128, 128], # number of filters per layer
-                      kernel_size = 7, # kernel size for first conv layer
-                      dropout_rate = 0.1, 
-                      padding_mode='circular'
-                     )    
-    def model_forward(input):
-        return model.forward(input)
-    
-    model_name += '_' + str(2 + 2 * np.sum(layers)) # add layer count to model name
-
-else: 
-    raise NotImplementedError()
+model, model_forward = named_network(model_name, n_channels, len(target_vars))
 
 print('total #parameters: ', np.sum([np.prod(item.shape) for item in model.state_dict().values()]))
 print('output shape: ', model_forward(torch.zeros((7,n_channels,32,64))).shape)
-#print(model)
 
 
 ## train model
+from src.pytorch.train import train_model
 
-import torch.optim as optim
-import torch.nn.functional as F
-from copy import deepcopy
+lr=5e-4
+lr_min=1e-6
+lr_decay=0.2
+weight_decay=1e-5
+max_lr_patience=5
+max_patience=20
+eval_every=2000
+max_epochs=200
+max_patience=20
+    
+training_outputs = train_model(model, train_loader, validation_loader, device, model_forward,
+                weight_decay=weight_decay, max_epochs=max_epochs, max_patience=max_patience, 
+                lr=lr, lr_min=lr_min, lr_decay=lr_decay, max_lr_patience=max_lr_patience, eval_every=eval_every,
+                verbose=True, save_dir=res_dir + model_fn)
 
-lr = 5e-4
-lr_min = 1e-5
-lr_decay = 0.2 
-weight_decay = 1e-5 # L2 Norm
 
-optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
-def lr_getter():
-    return optimizer.param_groups[0]['lr']
-def lr_setter(lr):
-    optimizer.param_groups[0]['lr'] = lr
-
-n_epochs, max_patience, max_lr_patience = 200, 20, 20//2
-best_loss, patience, lr_patience = np.inf, max_patience, max_lr_patience
-best_state_dict = {}
-
-epoch = 0
-num_steps, eval_every = 0, 2000
-model.train()
-while True:
-
-    epoch += 1
-    if epoch > n_epochs:
-        break
-
-    # Train for a single epoch.
-    for batch in train_loader:
-        optimizer.zero_grad()
-        inputs, targets = batch[0].to(device), batch[1].to(device)
-        loss = F.mse_loss(model_forward(inputs), targets)
-        loss.backward()
-        optimizer.step()
-        num_steps += 1
-
-        #print('minibatch #' + str(num_steps))
-
-        # Track convergence on validation set.
-        if np.mod(num_steps, eval_every) == 0:
-            val_loss = 0
-            with torch.no_grad():
-                nb = 0
-                for batch in validation_loader:
-                    inputs, targets = batch[0].to(device), batch[1].to(device)
-                    val_loss += F.mse_loss(model_forward(inputs), targets)
-                    nb += 1
-            val_loss /= nb
-            print(f'epoch #{epoch} || loss (last batch) {loss} || validation loss {val_loss}')
-
-            if val_loss < best_loss:
-                patience, lr_patience = max_patience, max_lr_patience
-                best_loss = val_loss
-                best_state_dict = deepcopy(model.state_dict()) # during early training will save every epoch
-                torch.save(best_state_dict, res_dir + model_fn)
-
-            else:
-                patience -= 1
-                lr_patience -= 1
-
-            if lr_patience <= 0 and lr_getter() >= lr_min:
-                lr_setter(lr_getter() * lr_decay)
-                print('setting new lr :', str(lr_getter()))
-                lr_patience = max_lr_patience
-
-    if patience == 0:
-        model.load_state_dict(best_state_dict)
-        break
-
-torch.save(best_state_dict, res_dir + model_fn) # create savefile in case we never beat initial loss...
-
-# model evaluation
-from src.train_nn_pytorch import create_predictions
+# evaluate model
+from src.pytorch.train_nn import create_predictions
+from src.score import compute_weighted_rmse, load_test_data
 
 dg_test =  Dataset(x.sel(time=slice('2017', '2018')),
                    var_dict,
@@ -242,7 +94,9 @@ dg_test =  Dataset(x.sel(time=slice('2017', '2018')),
                    mean=dg_train.mean, # make sure that model was trained 
                    std=dg_train.std,   # with same data as in dg_train, 
                    normalize=True,     # or else normalization is off!
-                   randomize_order=False)
+                   randomize_order=False,
+                   target_vars=target_vars, 
+                   target_levels=target_levels)
 
 preds = create_predictions(model,
                            dg_test,
@@ -251,7 +105,6 @@ preds = create_predictions(model,
                            model_forward=model_forward,
                            verbose=True)
 
-from src.score import compute_weighted_rmse, load_test_data
 z500_test = load_test_data(f'{datadir}geopotential_500/', 'z')
 t850_test = load_test_data(f'{datadir}temperature_850/', 't')
 rmse_z = compute_weighted_rmse(preds.z, z500_test.isel(time=slice(lead_time, None))).load()
