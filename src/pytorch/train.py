@@ -5,18 +5,18 @@ import torch.nn.functional as F
 from copy import deepcopy
 
 
-def calc_val_loss(validation_loader, model_forward, device, loss=F.mse_loss):
+def calc_val_loss(validation_loader, model_forward, device, loss_fun=F.mse_loss):
     val_loss = 0.0
     with torch.no_grad():
         nb = 0
         for batch in validation_loader:
             inputs, targets = batch[0].to(device), batch[1].to(device)
-            val_loss += loss(model_forward(inputs), targets).item()
+            val_loss += loss_fun(model_forward(inputs), targets).item()
             nb += 1
     return val_loss / nb
 
 
-def train_model(model, train_loader, validation_loader, device, model_forward, loss=F.mse_loss, 
+def train_model(model, train_loader, validation_loader, device, model_forward, loss_fun=F.mse_loss, 
                 lr=0.001, lr_min=1e-5, lr_decay=0.2, weight_decay=0.,
                 max_epochs=200, max_patience=20, max_lr_patience=5, eval_every=None,
                 verbose=True, save_dir=None):
@@ -52,7 +52,7 @@ def train_model(model, train_loader, validation_loader, device, model_forward, l
         for batch_index, batch in enumerate(train_loader):
             optimizer.zero_grad()
             inputs, targets = batch[0].to(device), batch[1].to(device)
-            loss = loss(model_forward(inputs), targets)
+            loss = loss_fun(model_forward(inputs), targets)
             loss.backward()
             optimizer.step()
             num_steps += 1
