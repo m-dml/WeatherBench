@@ -21,6 +21,8 @@ model_name = 'simpleResnet' # 'simpleResnet', 'tvfcnResnet50', 'cnnbn', 'Unetbn'
 lead_time = 3*24
 batch_size = 32
 
+train_years = ('1979', '2015')
+
 var_dict = {'geopotential': ('z', [100, 200, 500, 850, 1000]),
            'temperature': ('t', [100, 200, 500, 850, 1000]),
            'u_component_of_wind': ('u', [100, 200, 500, 850, 1000]), 
@@ -37,6 +39,7 @@ x = x.chunk({'time' : np.sum(x.chunks['time']), 'lat' : x.chunks['lat'], 'lon': 
 
 dg_train = Dataset(x.sel(time=slice(train_years[0], train_years[1])), var_dict, lead_time, 
                    normalize=True, norm_subsample=1, res_dir=res_dir, train_years=train_years)
+
 train_loader = torch.utils.data.DataLoader(
     dg_train,
     batch_size=batch_size,
@@ -52,7 +55,8 @@ validation_loader = torch.utils.data.DataLoader(
 n_channels = len(dg_train.data.level.level)
 print('n_channels', n_channels)
 
-model_fn = f'{n_channels}D_fc{model_name}_{lead_time//24}d_pytorch.pt' # file name for saving/loading prediction model
+#model_fn = f'{n_channels}D_fc{model_name}_{lead_time//24}d_pytorch.pt' # file name for saving/loading prediction model
+model_fn = f'{n_channels}D_fc{model_name}_{lead_time//24}d_pytorch_lrdecay_weightdecay_normed_test.pt' # file name for saving/loading prediction model
 print('model filename', model_fn)
 
 ## define model
@@ -161,10 +165,19 @@ import torch.optim as optim
 import torch.nn.functional as F
 from copy import deepcopy
 
-optimizer = optim.Adam(model.parameters(), lr=0.001)
+lr = 5e-4
+lr_min = 1e-5
+lr_decay = 0.2 
+weight_decay = 1e-5 # L2 Norm
 
-n_epochs, max_patience = 200, 20
-best_loss, patience = np.inf, max_patience
+optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
+def lr_getter():
+    return optimizer.param_groups[0]['lr']
+def lr_setter(lr):
+    optimizer.param_groups[0]['lr'] = lr
+
+n_epochs, max_patience, max_lr_patience = 200, 20, 20//2
+best_loss, patience, lr_patience = np.inf, max_patience, max_lr_patience
 best_state_dict = {}
 
 epoch = 0
@@ -176,7 +189,6 @@ while True:
     if epoch > n_epochs:
         break
 
-    print(f'epoch #{epoch}')
     # Train for a single epoch.
     for batch in train_loader:
         optimizer.zero_grad()
@@ -185,6 +197,8 @@ while True:
         loss.backward()
         optimizer.step()
         num_steps += 1
+
+        #print('minibatch #' + str(num_steps))
 
         # Track convergence on validation set.
         if np.mod(num_steps, eval_every) == 0:
@@ -199,13 +213,19 @@ while True:
             print(f'epoch #{epoch} || loss (last batch) {loss} || validation loss {val_loss}')
 
             if val_loss < best_loss:
-                patience = max_patience
+                patience, lr_patience = max_patience, max_lr_patience
                 best_loss = val_loss
                 best_state_dict = deepcopy(model.state_dict()) # during early training will save every epoch
                 torch.save(best_state_dict, res_dir + model_fn)
 
-        else:
-            patience -= 1
+            else:
+                patience -= 1
+                lr_patience -= 1
+
+            if lr_patience <= 0 and lr_getter() >= lr_min:
+                lr_setter(lr_getter() * lr_decay)
+                print('setting new lr :', str(lr_getter()))
+                lr_patience = max_lr_patience
 
     if patience == 0:
         model.load_state_dict(best_state_dict)
