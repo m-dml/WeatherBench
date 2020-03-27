@@ -83,20 +83,18 @@ class Dataset(torch.utils.data.IterableDataset):
 
         if self.normalize:            
             if mean is None or std is None:
-                #try:
-                print('Loading means and standard deviations from disk')
-                mean, std, level, level_names = load_mean_std(res_dir, var_dict, train_years)
-                assert np.all( level_names == self.level_names )
-                self.mean = xr.DataArray(mean, coords={'level': level}, dims=['level'])
-                self.std = xr.DataArray(std, coords={'level': level}, dims=['level'])
-                #except:
-                """
+                try:
+                    print('Loading means and standard deviations from disk')
+                    mean, std, level, level_names = load_mean_std(res_dir, var_dict, train_years)
+                    assert np.all( level_names == self.level_names )
+                    self.mean = xr.DataArray(mean, coords={'level': level}, dims=['level'])
+                    self.std = xr.DataArray(std, coords={'level': level}, dims=['level'])
+                except:
                     print('WARNING! Could not load means and stds. Computing. Can take a while !')
                     self.mean = self.data.isel(time=slice(0, None, norm_subsample)).mean(
                         ('time', 'lat', 'lon')).compute() if mean is None else mean
                     self.std = self.data.isel(time=slice(0, None, norm_subsample)).std(
                         ('time', 'lat', 'lon')).compute() if std is None else std
-                """
             else:
                 self.mean, self.std = mean, std                
             self.data = (self.data - self.mean) / self.std
