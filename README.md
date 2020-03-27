@@ -24,6 +24,11 @@ If you have any questions about this dataset, please use the [Github Issue](http
 | Persistence | 936 / 1033 | 4.23 / 4.56 |  | [Rasp et al. 2020](https://arxiv.org/abs/2002.00469) |
 | Climatology | 1075 | 5.51 |  | [Rasp et al. 2020](https://arxiv.org/abs/2002.00469) |
 
+## Installation
+After cloning the repo, start in the base folder create a conda environment with 
+`conda env create -f environment.yml`
+Then, once inside this environment, make the environment available as a jupyter kernel using
+`python -m ipykernel install --user --name=wbtorch` 
 
 ## Quick start
 You can follow the quickstart guide in [this notebook](https://github.com/pangeo-data/WeatherBench/blob/master/quickstart.ipynb) or lauch it directly from [Binder](https://binder.pangeo.io/v2/gh/pangeo-data/WeatherBench/master?filepath=quickstart.ipynb).

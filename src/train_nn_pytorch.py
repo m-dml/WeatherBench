@@ -195,4 +195,5 @@ def create_predictions(model, dg, var_dict={'z' : None, 't' : None}, batch_size=
                 name=var
             ))
             lev_idx += nlevs
+
     return xr.merge(das, compat='override')
