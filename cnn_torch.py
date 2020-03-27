@@ -11,8 +11,8 @@ from torch.utils.data import RandomSampler
 
 #directories
 datadir = '/gpfs/work/nonnenma/data/forecast_predictability/weatherbench/5_625deg/'
-res_dir = '/gpfs/work/nonnenma/results/forecast_predictability/weatherbench/5_625deg/'
-assert os.path.exists(datadir) and os.path.exists(res_dir)
+results_dir = '/gpfs/work/nonnenma/results/forecast_predictability/weatherbench/5_625deg/'
+assert os.path.exists(datadir) and os.path.exists(results_dir)
 
 # define task
 var_dict = {'geopotential': ('z', [500])}  # input variables/levels
