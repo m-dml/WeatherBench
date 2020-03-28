@@ -37,8 +37,8 @@ class Dataset(torch.utils.data.IterableDataset):
 
     def __init__(self, ds, var_dict, lead_time, mean=None, std=None, load=False,
                  start=None, end=None, normalize=False, norm_subsample=1, randomize_order=True,
-                 target_vars=['geopotential', 'temperature'],
-                 target_levels=[500, 850], dtype=np.float32, res_dir=None, train_years=None):
+                 target_var_dict={'geopotential' : 500, 'temperature' : 850}, 
+                 dtype=np.float32, res_dir=None, train_years=None):
 
         self.ds = ds
         self.var_dict = var_dict
@@ -47,8 +47,8 @@ class Dataset(torch.utils.data.IterableDataset):
         self.randomize_order = randomize_order
 
         # indexing for __getitem__ and __iter__ to find targets Z500, T850
-        assert np.all(var in var_dict.keys() for var in target_vars)
-        assert np.all(level in var_dict[var][1] for level, var in zip(target_levels, target_vars))
+        assert np.all(var in var_dict.keys() for var in target_var_dict.keys())
+        assert np.all(level in var_dict[var][1] for var, level in target_var_dict.items())
         
         if start is None or end is None:
             start = 0
@@ -102,7 +102,7 @@ class Dataset(torch.utils.data.IterableDataset):
         self.valid_time = self.data.isel(time=slice(lead_time, None)).time
 
         self._target_idx = []
-        for level, var in zip(target_levels, target_vars):
+        for var, level in target_var_dict.items():
             target_name = var_dict[var][0] + '_' + str(level)
             self._target_idx += [np.where(np.array(self.level_names) == target_name)[0][0]]
 
