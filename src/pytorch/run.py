@@ -18,25 +18,28 @@ def run_exp(exp_id, datadir, res_dir, model_name,
     target_var_dict={'geopotential': 500, 'temperature': 850}
 
     # load data
-    train_loader, validation_loader, dg_train, dg_validation = load_data(
-        var_dict=var_dict, lead_time=lead_time, batch_size=batch_size,
+    dg_train, dg_validation, dg_test = load_data(
+        var_dict=var_dict, lead_time=lead_time,
         train_years=(train_years[0], train_years[1]), 
         validation_years=(validation_years[0], validation_years[1]), 
+        test_years=(test_years[0], test_years[1]),
         target_var_dict=target_var_dict, datadir=datadir, res_dir=res_dir
     )
-    
+    validation_loader = torch.utils.data.DataLoader(
+        dg_validation, batch_size=batch_size, drop_last=False
+    )
+    train_loader = torch.utils.data.DataLoader(
+        dg_train, batch_size=batch_size, drop_last=True
+    )
     n_channels = len(dg_train.data.level.level)
     print('n_channels', n_channels)
-
-    model_fn = f'{n_channels}D_fc{model_name}_{lead_time}h_pytorch_lrdecay_weightdecay_normed_test3.pt'
+    model_fn = f'{exp_id}_{n_channels}D_fc{model_name}_{lead_time}h.pt'
     print('model filename', model_fn)
 
 
     ## define model
-
     model, model_forward = named_network(model_name, n_channels, len(target_var_dict), 
                                          kernel_sizes=kernel_sizes, filters=filters, dropout_rate=dropout_rate)
-
     print('total #parameters: ', np.sum([np.prod(item.shape) for item in model.state_dict().values()]))
     print('output shape: ', model_forward(torch.zeros((7,n_channels,32,64))).shape)
 
@@ -49,22 +52,8 @@ def run_exp(exp_id, datadir, res_dir, model_name,
 
 
     # evaluate model
-    dg_test =  Dataset(x.sel(time=slice(test_years[0], test_years[1])),
-                       var_dict,
-                       lead_time,
-                       normalize=True,
-                       norm_subsample=1,
-                       res_dir=res_dir,
-                       train_years=train_years,
-                       target_vars=target_vars, 
-                       randomize_order=False)
-    preds = create_predictions(model,
-                               dg_test,
-                               var_dict={'z' : None, 't' : None},
-                               batch_size=100,
-                               model_forward=model_forward,
-                               verbose=True)
-
+    preds = create_predictions(model, dg_test, var_dict={'z' : None, 't' : None},
+                               batch_size=100, model_forward=model_forward, verbose=True)
     z500_test = load_test_data(f'{datadir}geopotential_500/', 'z')
     t850_test = load_test_data(f'{datadir}temperature_850/', 't')
     rmse_z = compute_weighted_rmse(preds.z, z500_test.isel(time=slice(lead_time, None))).load()

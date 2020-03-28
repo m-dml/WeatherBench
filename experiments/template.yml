@@ -1,8 +1,8 @@
-exp_id: resnet18_baseline
+exp_id: resnet_baseline
 datadir: /gpfs/work/nonnenma/data/forecast_predictability/weatherbench/5_625deg/
 res_dir: /gpfs/work/nonnenma/results/forecast_predictability/weatherbench/5_625deg/
 lead_time: 72
-model_name: simpleResnet 
+model_name: simpleResnet
 batch_size: 32
 test_years: [2017, 2018]
 train_years: [1979, 2015]

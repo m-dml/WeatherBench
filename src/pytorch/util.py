@@ -20,7 +20,7 @@ def init_torch_device():
     return device
 
 
-def load_data(var_dict, lead_time, batch_size, train_years, validation_years, 
+def load_data(var_dict, lead_time, train_years, validation_years, test_years,
               target_var_dict, datadir, res_dir=None): 
 
     x = xr.merge(
@@ -34,20 +34,15 @@ def load_data(var_dict, lead_time, batch_size, train_years, validation_years,
                        normalize=True, norm_subsample=1, res_dir=res_dir, train_years=train_years,
                        target_var_dict=target_var_dict)
 
-    train_loader = torch.utils.data.DataLoader(
-        dg_train,
-        batch_size=batch_size,
-        drop_last=True)
-
-    dg_validation =  Dataset(x.sel(time=slice(validation_years[0], validation_years[1])), var_dict, lead_time,
+    dg_validation = Dataset(x.sel(time=slice(validation_years[0], validation_years[1])), var_dict, lead_time,
                             normalize=True, mean=dg_train.mean, std=dg_train.std, randomize_order=False,
                             target_var_dict=target_var_dict)
-    validation_loader = torch.utils.data.DataLoader(
-        dg_validation,
-        batch_size=batch_size,
-        drop_last=False)
-
-    return train_loader, validation_loader, dg_train, dg_validation
+    
+    dg_test =  Dataset(x.sel(time=slice(test_years[0], test_years[1])), var_dict, lead_time,
+                       normalize=True, mean=dg_train.mean, std=dg_train.std, randomize_order=False,
+                       target_var_dict=target_var_dict)
+    
+    return dg_train, dg_validation, dg_test
 
 
 def named_network(model_name, n_input_channels, n_output_channels, **kwargs):
