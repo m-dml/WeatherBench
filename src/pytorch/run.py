@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 from src.pytorch.util import init_torch_device, load_data, named_network
-from src.pytorch.train import train_model
+from src.pytorch.train import train_model, loss_function
 from src.pytorch.train_nn import create_predictions
 from src.score import compute_weighted_rmse, load_test_data
 from configargparse import ArgParser
@@ -9,7 +9,7 @@ import ast
 
 def run_exp(exp_id, datadir, res_dir, model_name, 
             lead_time, test_years, train_years, validation_years,
-            var_dict,
+            loss_fun, var_dict,
             kernel_sizes, filters, weight_decay, dropout_rate,
             batch_size, max_epochs, eval_every, max_patience,
             lr, lr_min, lr_decay, max_lr_patience):
@@ -45,10 +45,13 @@ def run_exp(exp_id, datadir, res_dir, model_name,
 
 
     ## train model
-    training_outputs = train_model(model, train_loader, validation_loader, device, model_forward,
-                    weight_decay=weight_decay, max_epochs=max_epochs, max_patience=max_patience, 
-                    lr=lr, lr_min=lr_min, lr_decay=lr_decay, max_lr_patience=max_lr_patience,
-                    eval_every=eval_every, verbose=True, save_dir=res_dir + model_fn)
+    loss_fun = loss_function(loss_fun)
+    training_outputs = train_model(
+        model, train_loader, validation_loader, device, model_forward, loss_fun=loss_fun,
+        weight_decay=weight_decay, max_epochs=max_epochs, max_patience=max_patience, 
+        lr=lr, lr_min=lr_min, lr_decay=lr_decay, max_lr_patience=max_lr_patience,
+        eval_every=eval_every, verbose=True, save_dir=res_dir + model_fn
+    )
 
 
     # evaluate model
@@ -78,6 +81,7 @@ def setup(conf_exp=None):
     p.add_argument('--var_dict', required=True, help='dictionary of fields to use for prediction')
     #p.add_argument('--target_var_dict', help='dictionary of fields to predict')
     
+    p.add_argument('--loss_fun', type=str, default='mse', help='loss function for model training')
     p.add_argument('--batch_size', type=int, default=64, help='batch-size')
     p.add_argument('--max_epochs', type=int, default=2000, help='epochs')
     p.add_argument('--max_patience', type=int, default=None, help='patience for early stopping')

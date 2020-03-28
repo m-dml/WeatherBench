@@ -5,6 +5,24 @@ import torch.nn.functional as F
 from copy import deepcopy
 
 
+def loss_function(loss_fun):
+    if loss_fun == 'mse':
+        return F.mse_loss
+    else:
+        raise NotImplementedError()
+    """
+    elif loss_fun == 'lat_mse':
+        # Copied from weatherbench fork of S. Rasp: 
+        weights_lat = np.cos(np.deg2rad(lat)).values
+        weights_lat /= weights_lat.mean()
+        def lat_mse(y_true, y_pred):
+            error = y_true - y_pred
+            lat_mse = (error)**2 * weights_lat[None, : , None, None]
+            return mse
+        return lat_lat_mse
+    """
+
+
 def calc_val_loss(validation_loader, model_forward, device, loss_fun=F.mse_loss):
     val_loss = 0.0
     with torch.no_grad():
@@ -63,7 +81,7 @@ def train_model(model, train_loader, validation_loader, device, model_forward, l
             if np.mod(num_steps, eval_every) == 0:
                 # Track convergence on validation set
                 validation_loss = np.append(validation_loss, 
-                                            calc_val_loss(validation_loader, model_forward, device)
+                                            calc_val_loss(validation_loader, model_forward, device, loss_fun)
                                            )
                 if verbose:
                     print(f'epoch #{epoch} || loss (last batch) {loss} || validation loss {validation_loss[-1]}')

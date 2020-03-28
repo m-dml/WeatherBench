@@ -7,6 +7,7 @@ batch_size: 32
 test_years: [2017, 2018]
 train_years: [1979, 2015]
 validation_years: [2016, 2016]
+loss_fun: mse
 dropout_rate: 0.1
 lr: 5e-4
 lr_min: 1e-6
