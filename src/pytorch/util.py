@@ -21,7 +21,7 @@ def init_torch_device():
 
 
 def load_data(var_dict, lead_time, batch_size, train_years, validation_years, 
-              target_vars, target_levels, datadir, res_dir=None): 
+              target_var_dict, datadir, res_dir=None): 
 
     x = xr.merge(
     [xr.open_mfdataset(f'{datadir}/{var}/*.nc', combine='by_coords')
@@ -32,7 +32,7 @@ def load_data(var_dict, lead_time, batch_size, train_years, validation_years,
 
     dg_train = Dataset(x.sel(time=slice(train_years[0], train_years[1])), var_dict, lead_time, 
                        normalize=True, norm_subsample=1, res_dir=res_dir, train_years=train_years,
-                       target_vars=target_vars, target_levels=target_levels)
+                       target_var_dict=target_var_dict)
 
     train_loader = torch.utils.data.DataLoader(
         dg_train,
@@ -41,7 +41,7 @@ def load_data(var_dict, lead_time, batch_size, train_years, validation_years,
 
     dg_validation =  Dataset(x.sel(time=slice(validation_years[0], validation_years[1])), var_dict, lead_time,
                             normalize=True, mean=dg_train.mean, std=dg_train.std, randomize_order=False,
-                            target_vars=target_vars, target_levels=target_levels)
+                            target_var_dict=target_var_dict)
     validation_loader = torch.utils.data.DataLoader(
         dg_validation,
         batch_size=batch_size,
@@ -50,7 +50,7 @@ def load_data(var_dict, lead_time, batch_size, train_years, validation_years,
     return train_loader, validation_loader, dg_train, dg_validation
 
 
-def named_network(model_name, n_input_channels, n_output_channels):
+def named_network(model_name, n_input_channels, n_output_channels, **kwargs):
     if model_name == 'cnnbn':
 
         model = SimpleCNN(filters=[64, 64, 64, 64, n_output_channels],  # last '2' for Z500, T850
@@ -109,23 +109,16 @@ def named_network(model_name, n_input_channels, n_output_channels):
                           kernel_size = 3 # kernel size for first conv layer
                          )
         """
-        layers = [13]
 
         model = FCNResNet(in_channels=n_input_channels,
                           out_channels=n_output_channels,
                           block=CircBlock,  # basic ResNet block. 'Bottleneck' is 1x1 -> 3x3 -> 1x1 convs stacked
-                          # replace_stride_with_dilation=[True, True, True], # assures stride=1 through all layers
-                          layers=layers,  # number of blocks per layer. len(layers) gives number of layers !
-                          nfilters=[128, 128],  # number of filters per layer
-                          kernel_size=7,  # kernel size for first conv layer
-                          dropout_rate=0.1,
-                          padding_mode='circular'
+                          padding_mode='circular',
+                          **kwargs
                           )
 
         def model_forward(input):
             return model.forward(input)
-
-        model_name = model_name + '_' + str(2 + 2 * np.sum(layers))
 
     else:
         raise NotImplementedError()

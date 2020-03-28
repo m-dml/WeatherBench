@@ -60,10 +60,11 @@ class FCNResNet(ResNet):
     Based on torchvision ResNet implementation
     https://github.com/pytorch/vision/blob/master/torchvision/models/resnet.py#L124
     """
-    def __init__(self, block, layers, zero_init_residual=False,
+    def __init__(self, block, zero_init_residual=False,
                  groups=1, width_per_group=64,
                  norm_layer=None, in_channels=1, out_channels=1, 
-                 nfilters=[64, 64, 128, 256, 512], kernel_size=3, padding_mode='zeros',
+                 filters=[64, 128, 128], kernel_sizes=[3,3,3],
+                 padding_mode='zeros',
                  dropout_rate=0):
         super(ResNet, self).__init__()
 
@@ -73,26 +74,25 @@ class FCNResNet(ResNet):
         self.groups = groups
         self.base_width = width_per_group
 
-        self.inplanes = nfilters[0]
-        #self.conv1 = torch.nn.Conv2d(in_channels, nfilters[0], kernel_size=kernel_size, 
-        #                             stride=1, padding=(kernel_size-1)//2, bias=True)
-        self.conv1 = PeriodicConv2D(in_channels, nfilters[0], kernel_size=kernel_size, 
-                                    stride=1,  padding=kernel_size-1, bias=True,
+        self.inplanes = filters[0]
+        self.conv1 = PeriodicConv2D(in_channels, filters[0], kernel_size=kernel_sizes[0], 
+                                    stride=1,  padding=kernel_sizes[0]-1, bias=True,
                                     padding_mode=padding_mode)
-        self.bn1 = norm_layer(nfilters[0])
+        self.bn1 = norm_layer(filters[0])
         self.relu = torch.nn.ReLU(inplace=True)
         self.dropout = torch.nn.Dropout(p=dropout_rate) if dropout_rate > 0 else torch.nn.Identity()
 
-        self.layer1 = self._make_layer(block, nfilters[1], layers[0], dr=dropout_rate)
+        self.layer1 = self._make_layer(block, filters[1:], kernel_sizes[1:], dr=dropout_rate)
+        """
         if len(layers) > 2:
             self.layer2 = self._make_layer(block, nfilters[2], layers[1], dr=dropout_rate)
         if len(layers) > 3:
             self.layer3 = self._make_layer(block, nfilters[3], layers[2], dr=dropout_rate)
         if len(layers) > 4:
             self.layer4 = self._make_layer(block, nfilters[4], layers[3], dr=dropout_rate)
-
+        """
         expansion = 4 if block is Bottleneck else 1
-        self.final = torch.nn.Conv2d(in_channels=expansion*nfilters[len(layers)],
+        self.final = torch.nn.Conv2d(in_channels=expansion*filters[-1],
                                      out_channels=out_channels, 
                                      kernel_size=(1,1), 
                                      stride=1)
@@ -114,21 +114,21 @@ class FCNResNet(ResNet):
                     torch.nn.init.constant_(m.bn2.weight, 0)
 
 
-    def _make_layer(self, block, planes, blocks, stride=1, dilation=1, dr=0):
+    def _make_layer(self, block, planes, kernel_sizes, stride=1, dilation=1, dr=0):
         norm_layer = self._norm_layer
         downsample = None
-        if stride != 1 or self.inplanes != planes * block.expansion:
+        if stride != 1 or self.inplanes != planes[0] * block.expansion:
             downsample = torch.nn.Sequential(
-                conv1x1(self.inplanes, planes * block.expansion, stride),
-                norm_layer(planes * block.expansion),
+                conv1x1(self.inplanes, planes[0] * block.expansion, stride),
+                norm_layer(planes[0] * block.expansion),
             )
 
         layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample, self.groups,
-                            self.base_width, dilation, norm_layer, dropout_rate=dr))
-        self.inplanes = planes * block.expansion
-        for _ in range(1, blocks):
-            layers.append(block(self.inplanes, planes, groups=self.groups,
+        layers.append(block(self.inplanes, planes[0], stride, downsample, self.groups, self.base_width,
+                            dilation, norm_layer, kernel_size=kernel_sizes[0], dropout_rate=dr))
+        self.inplanes = planes[0] * block.expansion
+        for p, k in zip(planes[1:], kernel_sizes[1:]):
+            layers.append(block(self.inplanes, p, groups=self.groups, kernel_size=k,
                                 base_width=self.base_width, dilation=dilation,
                                 norm_layer=norm_layer, dropout_rate=dr))
 
