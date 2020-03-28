@@ -1,0 +1,22 @@
+exp_id: resnet18_baseline
+datadir: /gpfs/work/nonnenma/data/forecast_predictability/weatherbench/5_625deg/
+res_dir: /gpfs/work/nonnenma/results/forecast_predictability/weatherbench/5_625deg/
+lead_time: 72
+model_name: simpleResnet 
+batch_size: 32
+test_years: [2017, 2018]
+train_years: [1979, 2015]
+validation_years: [2016, 2016]
+dropout_rate: 0.1
+lr: 5e-4
+lr_min: 1e-6
+lr_decay: 0.2
+weight_decay: 1e-5
+max_lr_patience: 5
+max_patience: 20
+eval_every: 2000
+max_epochs: 200
+max_patience: 20
+var_dict: {'geopotential': ('z', [100, 200, 500, 850, 1000]), 'temperature': ('t', [100, 200, 500, 850, 1000]), 'u_component_of_wind': ('u', [100, 200, 500, 850, 1000]), 'v_component_of_wind': ('v', [100, 200, 500, 850, 1000]),'constants': ['lsm','orography','lat2d']}
+filters: [128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128]
+kernel_sizes: [7, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3]
