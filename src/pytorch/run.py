@@ -55,7 +55,7 @@ def run_exp(exp_id, datadir, res_dir, model_name,
 
 
     # evaluate model
-    preds = create_predictions(model, dg_test, var_dict={'z' : None, 't' : None},
+    preds = create_predictions(model, dg_test, var_dict={'z' : None, 't' : None}, device=device,
                                batch_size=100, model_forward=model_forward, verbose=True)
     z500_test = load_test_data(f'{datadir}geopotential_500/', 'z')
     t850_test = load_test_data(f'{datadir}temperature_850/', 't')
