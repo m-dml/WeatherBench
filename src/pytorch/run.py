@@ -65,7 +65,7 @@ def run_exp(exp_id, datadir, res_dir, model_name,
         commit_id = subprocess.Popen(['git', 'rev-parse', 'HEAD'], shell=False, stdout=subprocess.PIPE)
         open(save_dir + commit_id.communicate()[0].strip().decode("utf-8") + '.txt', 'w')
 
-        loss_fun = loss_function(loss_fun)
+        loss_fun = loss_function(loss_fun, extra_args={'lat': dg_train.data.lat})
         training_outputs = train_model(
             model, train_loader, validation_loader, device, model_forward, loss_fun=loss_fun,
             weight_decay=weight_decay, max_epochs=max_epochs, max_patience=max_patience, 
