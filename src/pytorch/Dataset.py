@@ -37,25 +37,28 @@ class Dataset(torch.utils.data.IterableDataset):
 
     def __init__(self, ds, var_dict, lead_time, mean=None, std=None, load=False,
                  start=None, end=None, normalize=False, norm_subsample=1, randomize_order=True,
-                 target_var_dict={'geopotential' : 500, 'temperature' : 850}, 
-                 dtype=np.float32, res_dir=None, train_years=None):
+                 target_vars=['geopotential', 'temperature'],
+                 target_levels=[500, 850], dtype=np.float32, res_dir=None, train_years=None,
+                 past_times=[]):
 
         self.ds = ds
         self.var_dict = var_dict
         self.lead_time = lead_time
+        self.past_times = past_times
         self.normalize = normalize
         self.randomize_order = randomize_order
 
         # indexing for __getitem__ and __iter__ to find targets Z500, T850
-        assert np.all(var in var_dict.keys() for var in target_var_dict.keys())
-        assert np.all(level in var_dict[var][1] for var, level in target_var_dict.items())
+        assert np.all(var in var_dict.keys() for var in target_vars)
+        assert np.all(level in var_dict[var][1] for level, var in zip(target_levels, target_vars))
         
+        max_input_lag = -np.min(self.past_times) if len(self.past_times) > 0 else 0
         if start is None or end is None:
-            start = 0
+            start = np.max([0, max_input_lag])
             end = self.ds.time.isel(time=slice(0, -self.lead_time)).values.shape[0]
         assert end > start, "this example code only works with end >= start"
-        self.start = start
-        self.end = end
+        assert start >= max_input_lag
+        self.start, self.end = start, end
 
         self.data = []
         self.level_names = []
@@ -102,7 +105,7 @@ class Dataset(torch.utils.data.IterableDataset):
         self.valid_time = self.data.isel(time=slice(lead_time, None)).time
 
         self._target_idx = []
-        for var, level in target_var_dict.items():
+        for level, var in zip(target_levels, target_vars):
             target_name = var_dict[var][0] + '_' + str(level)
             self._target_idx += [np.where(np.array(self.level_names) == target_name)[0][0]]
 
@@ -111,8 +114,14 @@ class Dataset(torch.utils.data.IterableDataset):
 
     def __getitem__(self, index):
         """ Generate one batch of data """
+        assert np.min(index) >= self.start
         idx = np.asarray(index)
         X = self.data.isel(time=idx).values
+        if max_input_lag > 0:
+            Xl = []
+            for l in self.past_times:
+                Xl.append(self.data.isel(time=idx+self.past_times[l]).values)
+            X = np.concatenate(Xls, axis=1) # stack past time points along channel dimension            
         y = self.data.isel(time=idx + self.lead_time, level=self._target_idx).values
         return X, y
 
@@ -136,6 +145,11 @@ class Dataset(torch.utils.data.IterableDataset):
         else: 
             idx = torch.arange(iter_start, iter_end).cpu()
         X = self.data.isel(time=idx).values
+        if max_input_lag > 0:
+            Xl = []
+            for l in self.past_times:
+                Xl.append(self.data.isel(time=idx+self.past_times[l]).values)
+            X = np.concatenate(Xls, axis=1) # stack past time points along channel dimension        
         y = self.data.isel(time=idx + self.lead_time, level=self._target_idx).values
         return zip(X, y)
     
