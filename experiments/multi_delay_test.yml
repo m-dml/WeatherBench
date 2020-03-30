@@ -18,6 +18,6 @@ max_lr_patience: 10
 max_patience: 50
 eval_every: 2000
 max_epochs: 200
-var_dict: {'geopotential': ('z', [200, 500, 850, 1000]), 'temperature': ('t', [200, 500, 850, 1000]), 'u_component_of_wind': ('u', [200, 500, 850, 1000]), 'v_component_of_wind': ('v', [200, 500, 850, 1000]),'constants': ['lsm','orography','lat2d']}
+var_dict: {'geopotential': ('z', [500, 850]), 'temperature': ('t', [500, 850]), 'u_component_of_wind': ('u', [500, 850]), 'v_component_of_wind': ('v', [500, 850]),'constants': ['lsm','orography','lat2d']}
 filters: [128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128]
 kernel_sizes: [7, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3]
