@@ -7,6 +7,12 @@ from src.score import compute_weighted_rmse, load_test_data
 from configargparse import ArgParser
 import ast
 
+import os
+def mkdir_p(dir):
+    '''make a directory (dir) if it doesn't exist'''
+    if not os.path.exists(dir):
+        os.mkdir(dir)
+
 def run_exp(exp_id, datadir, res_dir, model_name, 
             lead_time, test_years, train_years, validation_years,
             loss_fun, var_dict,
@@ -49,14 +55,22 @@ def run_exp(exp_id, datadir, res_dir, model_name,
         print('loading model form disk')
         model.load_state_dict(torch.load(res_dir + model_fn, map_location=torch.device(device)))
     else: # actually train
+
+        save_dir = res_dir + 'models/' + exp_id + '/'
+        mkdir_p(save_dir)
+        print('saving model state_dict to ' + save_dir + model_fn)
+        
         loss_fun = loss_function(loss_fun)
         training_outputs = train_model(
             model, train_loader, validation_loader, device, model_forward, loss_fun=loss_fun,
             weight_decay=weight_decay, max_epochs=max_epochs, max_patience=max_patience, 
             lr=lr, lr_min=lr_min, lr_decay=lr_decay, max_lr_patience=max_lr_patience,
-            eval_every=eval_every, verbose=True, save_dir=res_dir + model_fn
+            eval_every=eval_every, verbose=True, save_dir=save_dir + model_fn
         )
-
+        print('saving full model to' + save_dir+model_fn[:-3] + '_full_model.pt')
+        torch.save(model, save_dir+model_fn[:-3] + '_full_model.pt')
+        print('saving training outputs to ' + save_dir + '_training_outputs.npy')
+        np.save(save_dir + '_training_outputs', training_outputs)
 
     # evaluate model
     preds = create_predictions(model, dg_test, var_dict={'z' : None, 't' : None}, device=device,
@@ -67,8 +81,8 @@ def run_exp(exp_id, datadir, res_dir, model_name,
     rmse_t = compute_weighted_rmse(preds.t, t850_test.isel(time=slice(lead_time, None))).load()
     print('RMSE z', rmse_z.values); print('RMSE t', rmse_t.values)
 
-    print('saving RMSE results to ' + res_dir + model_fn[:-3] + '_RMSE_zt.npy')
-    np.save(res_dir + model_fn[:-3] + '_RMSE_zt',  np.hstack((rmse_z.values, rmse_t.values)))
+    print('saving RMSE results to ' + save_dir + model_fn[:-3] + '_RMSE_zt.npy')
+    np.save(save_dir + model_fn[:-3] + '_RMSE_zt',  np.hstack((rmse_z.values, rmse_t.values)))
 
 def setup(conf_exp=None):
     p = ArgParser()
