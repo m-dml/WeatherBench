@@ -60,6 +60,10 @@ def run_exp(exp_id, datadir, res_dir, model_name,
         mkdir_p(save_dir)
         print('saving model state_dict to ' + save_dir + model_fn)
 
+        import subprocess
+        commit_id = subprocess.Popen(['git', 'rev-parse', 'HEAD'], shell=False, stdout=subprocess.PIPE)
+        open(save_dir + commit_id.communicate()[0].strip().decode("utf-8") + '.txt', 'w')
+
         loss_fun = loss_function(loss_fun)
         training_outputs = train_model(
             model, train_loader, validation_loader, device, model_forward, loss_fun=loss_fun,
@@ -72,9 +76,6 @@ def run_exp(exp_id, datadir, res_dir, model_name,
         print('saving training outputs to ' + save_dir + '_training_outputs.npy')
         np.save(save_dir + '_training_outputs', training_outputs)
 
-        import subprocess
-        commit_id = subprocess.Popen(['git', 'rev-parse', 'HEAD'], shell=False, stdout=subprocess.PIPE)
-        open(save_dir + commit_id.communicate()[0].strip().decode("utf-8") + '.txt', 'w')
 
     # evaluate model
     preds = create_predictions(model, dg_test, var_dict={'z' : None, 't' : None}, device=device,
