@@ -12,7 +12,7 @@ def run_exp(exp_id, datadir, res_dir, model_name,
             loss_fun, var_dict,
             kernel_sizes, filters, weight_decay, dropout_rate,
             batch_size, max_epochs, eval_every, max_patience,
-            lr, lr_min, lr_decay, max_lr_patience):
+            lr, lr_min, lr_decay, max_lr_patience, only_eval):
 
     device = init_torch_device()
     target_var_dict={'geopotential': 500, 'temperature': 850}
@@ -45,13 +45,17 @@ def run_exp(exp_id, datadir, res_dir, model_name,
 
 
     ## train model
-    loss_fun = loss_function(loss_fun)
-    training_outputs = train_model(
-        model, train_loader, validation_loader, device, model_forward, loss_fun=loss_fun,
-        weight_decay=weight_decay, max_epochs=max_epochs, max_patience=max_patience, 
-        lr=lr, lr_min=lr_min, lr_decay=lr_decay, max_lr_patience=max_lr_patience,
-        eval_every=eval_every, verbose=True, save_dir=res_dir + model_fn
-    )
+    if only_eval:
+        print('loading model form disk')
+        model.load_state_dict(torch.load(res_dir + model_fn, map_location=torch.device(device)))
+    else: # actually train
+        loss_fun = loss_function(loss_fun)
+        training_outputs = train_model(
+            model, train_loader, validation_loader, device, model_forward, loss_fun=loss_fun,
+            weight_decay=weight_decay, max_epochs=max_epochs, max_patience=max_patience, 
+            lr=lr, lr_min=lr_min, lr_decay=lr_decay, max_lr_patience=max_lr_patience,
+            eval_every=eval_every, verbose=True, save_dir=res_dir + model_fn
+        )
 
 
     # evaluate model
@@ -72,6 +76,7 @@ def setup(conf_exp=None):
     p.add_argument('--exp_id', type=str, required=True, help='experiment id')
     p.add_argument('--datadir', type=str, required=True, help='path to data')
     p.add_argument('--res_dir', type=str, required=True, help='path to results')
+    p.add_argument('--only_eval', type=bool, default=False, help='if to evaulate saved model (=False for training)')
 
     p.add_argument('--lead_time', type=int, required=True, help='forecast lead time')
     p.add_argument('--train_years', type=str, nargs='+', default=('1979', '2015'), help='years for training')
