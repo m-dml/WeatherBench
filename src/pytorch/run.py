@@ -15,7 +15,7 @@ def mkdir_p(dir):
 
 def run_exp(exp_id, datadir, res_dir, model_name, 
             lead_time, test_years, train_years, validation_years,
-            loss_fun, var_dict,
+            loss_fun, var_dict, past_times,
             kernel_sizes, filters, weight_decay, dropout_rate,
             batch_size, max_epochs, eval_every, max_patience,
             lr, lr_min, lr_decay, max_lr_patience, only_eval):
@@ -29,7 +29,8 @@ def run_exp(exp_id, datadir, res_dir, model_name,
         train_years=(train_years[0], train_years[1]), 
         validation_years=(validation_years[0], validation_years[1]), 
         test_years=(test_years[0], test_years[1]),
-        target_var_dict=target_var_dict, datadir=datadir, res_dir=res_dir
+        target_var_dict=target_var_dict, datadir=datadir, 
+        res_dir=res_dir, past_times=past_times
     )
     validation_loader = torch.utils.data.DataLoader(
         dg_validation, batch_size=batch_size, drop_last=False
@@ -37,7 +38,7 @@ def run_exp(exp_id, datadir, res_dir, model_name,
     train_loader = torch.utils.data.DataLoader(
         dg_train, batch_size=batch_size, drop_last=True
     )
-    n_channels = len(dg_train.data.level.level)
+    n_channels = len(dg_train.data.level.level) * (len(dg_train.past_times)+1)
     print('n_channels', n_channels)
     model_fn = f'{exp_id}_{n_channels}D_fc{model_name}_{lead_time}h.pt'
     print('model filename', model_fn)
@@ -104,6 +105,7 @@ def setup(conf_exp=None):
     
     p.add_argument('--var_dict', required=True, help='dictionary of fields to use for prediction')
     #p.add_argument('--target_var_dict', help='dictionary of fields to predict')
+    p.add_argument('--past_times', type=int, nargs='+', default=[], help='additional time points as input')
     
     p.add_argument('--loss_fun', type=str, default='mse', help='loss function for model training')
     p.add_argument('--batch_size', type=int, default=64, help='batch-size')
