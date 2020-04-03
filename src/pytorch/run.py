@@ -52,12 +52,12 @@ def run_exp(exp_id, datadir, res_dir, model_name,
 
 
     ## train model
+    save_dir = res_dir + 'models/' + exp_id + '/'
     if only_eval:
-        print('loading model form disk')
-        model.load_state_dict(torch.load(res_dir + model_fn, map_location=torch.device(device)))
+        print('loading model from disk')
+        model.load_state_dict(torch.load(save_dir + model_fn, map_location=torch.device(device)))
     else: # actually train
 
-        save_dir = res_dir + 'models/' + exp_id + '/'
         mkdir_p(save_dir)
         print('saving model state_dict to ' + save_dir + model_fn)
 
@@ -72,19 +72,19 @@ def run_exp(exp_id, datadir, res_dir, model_name,
             lr=lr, lr_min=lr_min, lr_decay=lr_decay, max_lr_patience=max_lr_patience,
             eval_every=eval_every, verbose=True, save_dir=save_dir + model_fn
         )
-        print('saving full model to' + save_dir+model_fn[:-3] + '_full_model.pt')
+        print('saving full model to ' + save_dir+model_fn[:-3] + '_full_model.pt')
         torch.save(model, save_dir+model_fn[:-3] + '_full_model.pt')
-        print('saving training outputs to ' + save_dir + '_training_outputs.npy')
+        print('saving training outputs to ' + save_dir +  '_training_outputs.npy')
         np.save(save_dir + '_training_outputs', training_outputs)
 
 
     # evaluate model
     preds = create_predictions(model, dg_test, var_dict={'z' : None, 't' : None}, device=device,
-                               batch_size=100, model_forward=model_forward, verbose=True)
+                               batch_size=100, model_forward=model_forward, verbose=True)    
     z500_test = load_test_data(f'{datadir}geopotential_500/', 'z')
     t850_test = load_test_data(f'{datadir}temperature_850/', 't')
-    rmse_z = compute_weighted_rmse(preds.z, z500_test.isel(time=slice(lead_time, None))).load()
-    rmse_t = compute_weighted_rmse(preds.t, t850_test.isel(time=slice(lead_time, None))).load()
+    rmse_z = compute_weighted_rmse(preds.z, z500_test.isel(time=slice(lead_time+dg_test.max_input_lag, None))).load()
+    rmse_t = compute_weighted_rmse(preds.t, t850_test.isel(time=slice(lead_time+dg_test.max_input_lag, None))).load()
     print('RMSE z', rmse_z.values); print('RMSE t', rmse_t.values)
 
     print('saving RMSE results to ' + save_dir + model_fn[:-3] + '_RMSE_zt.npy')

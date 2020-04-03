@@ -101,7 +101,7 @@ class Dataset(torch.utils.data.IterableDataset):
                 self.mean, self.std = mean, std
             self.data = (self.data - self.mean) / self.std
 
-        self.valid_time = self.data.isel(time=slice(lead_time, None)).time
+        self.valid_time = self.data.isel(time=slice(lead_time+self.max_input_lag, None)).time
 
         self._target_idx = []
         for var, level in target_var_dict.items():
