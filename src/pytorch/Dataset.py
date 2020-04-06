@@ -34,7 +34,7 @@ def collate_fn(batch):
     return (torch.tensor(X_stack, requires_grad=False), torch.tensor(Y_stack, requires_grad=False))
 
 
-class Dataset(torch.utils.data.IterableDataset):
+class BaseDataset(torch.utils.data.IterableDataset):
     r"""A class representing a :class:`Dataset`.
     
     Base on DataGenerator() object written by S. Rasp (for tensorflow v1.x): 
@@ -95,23 +95,8 @@ class Dataset(torch.utils.data.IterableDataset):
             self.level_names, dims=['level'], coords={'level': self.data.level})        
         self.output_idxs = range(len(self.data.level))
 
-        if self.normalize:
-            if mean is None or std is None:
-                try:
-                    print('Loading means and standard deviations from disk')
-                    mean, std, level, level_names = load_mean_std(res_dir, var_dict, train_years)
-                    assert np.all( level_names == self.level_names )
-                    self.mean = xr.DataArray(mean, coords={'level': level}, dims=['level'])
-                    self.std = xr.DataArray(std, coords={'level': level}, dims=['level'])
-                except:
-                    print('WARNING! Could not load means and stds. Computing. Can take a while !')
-                    self.mean = self.data.isel(time=slice(0, None, norm_subsample)).mean(
-                        ('time', 'lat', 'lon')).compute() if mean is None else mean
-                    self.std = self.data.isel(time=slice(0, None, norm_subsample)).std(
-                        ('time', 'lat', 'lon')).compute() if std is None else std
-            else:
-                self.mean, self.std = mean, std
-            self.data = (self.data - self.mean) / self.std
+        # normalize (optional)
+        self.norm(mean, std, res_dir, var_dict, train_years)
 
         self.valid_time = self.data.isel(time=slice(lead_time+self.max_input_lag, None)).time
 
@@ -125,9 +110,68 @@ class Dataset(torch.utils.data.IterableDataset):
 
     def __getitem__(self, index):
         """ Generate one batch of data """
+        pass
+
+    def __iter__(self):
+        """ Return iterable over data in random order """
+        pass
+    
+    def norm(self, mean, std):
+        """ Normalizes dataset by mean and std """
+        pass
+
+    def __len__(self):
+        return self.data.isel(time=slice(0, -self.lead_time)).shape[0]
+
+    def divide_workers(self):
+        """ parallelized data loading via torch.util.data.Dataloader """
+        if torch.utils.data.get_worker_info() is None:
+            iter_start = torch.tensor(self.start, requires_grad=False, dtype=torch.int)
+            iter_end = torch.tensor(self.end, requires_grad=False, dtype=torch.int)
+        else: 
+            worker_info = torch.utils.data.get_worker_info()
+            worker_id, num_workers = worker_info.id, worker_info.num_workers
+            worker_yrs = math.ceil(len(self.data.chunks[0])/num_workers)
+            cumidx = np.concatenate(([0], np.cumsum(self.data.chunks[0])))
+            iter_start = cumidx[worker_id*worker_yrs] + self.start 
+            iter_start = torch.tensor(iter_start, requires_grad=False, dtype=torch.int)
+            iter_end = min(cumidx[min((worker_id+1)*worker_yrs, len(self.data.chunks[0]))], self.end) 
+            iter_end = torch.tensor(iter_end - self.lead_time, requires_grad=False, dtype=torch.int)
+            if self.verbose:
+                print(f'worker stats: worker #{worker_id + 1} / {num_workers}')
+                print('len(data.chunks)', len(self.data.chunks[0]))
+                print('#assigned years:', worker_yrs)
+                print('index start', iter_start)
+                print('index end', iter_end)
+
+        return iter_start, iter_end
+
+
+class Dataset_xr(BaseDataset):
+
+    def norm(self, mean, std, res_dir=None, var_dict=None, train_years=None):
+        """ Normalizes dataset by mean and std """
+        if self.normalize:
+            if mean is None or std is None:
+                try:
+                    print('Loading means and standard deviations from disk')
+                    mean, std, level, level_names = load_mean_std(res_dir, var_dict, train_years)
+                    assert np.all( level_names == self.level_names )
+                    mean = xr.DataArray(mean, coords={'level': level}, dims=['level'])
+                    std = xr.DataArray(std, coords={'level': level}, dims=['level'])
+                except:
+                    print('WARNING! Could not load means and stds. Computing. Can take a while !')
+                    mean = self.data.isel(time=slice(0, None, norm_subsample)).mean(
+                        ('time', 'lat', 'lon')).compute() if mean is None else mean
+                    std = self.data.isel(time=slice(0, None, norm_subsample)).std(
+                        ('time', 'lat', 'lon')).compute() if std is None else std
+            self.data = (self.data - mean) / std
+        self.mean, self.std = mean, std
+
+    def __getitem__(self, index):
+        """ Generate one batch of data """
         assert np.min(index) >= self.start
         idx = np.asarray(index)
-        """
         X = self.data.isel(time=idx).values
         if self.max_input_lag > 0:
             Xl = [X]
@@ -135,8 +179,50 @@ class Dataset(torch.utils.data.IterableDataset):
                 Xl.append(self.data.isel(time=idx+l).values)
             X = np.concatenate(Xl, axis=1) if len (idx) > 1 else np.concatenate(Xl, axis=0)         
         y = self.data.isel(time=idx + self.lead_time, level=self._target_idx).values
-        """
-        
+        return X, y
+
+    def __iter__(self):
+        """ Return iterable over data in random order """
+        iter_start, iter_end = self.divide_workers()
+        if self.randomize_order:
+            idx = torch.randperm((iter_end - iter_start) + iter_start).cpu()
+        else: 
+            idx = torch.arange(iter_start, iter_end, requires_grad=False).cpu()
+
+        X = self.data.isel(time=idx).values
+        y = self.data.isel(time=idx + self.lead_time, level=self._target_idx).values
+
+        if self.max_input_lag > 0:
+            Xl = [X]
+            for l in self.past_times:
+                Xl.append(self.data.isel(time=idx+l).values)
+            X = np.concatenate(Xl, axis=1) # stack past time points along channel dimension
+
+        return zip(X, y)
+
+
+class Dataset_dask(BaseDataset):
+
+    def norm(self, mean, std, res_dir=None, var_dict=None, train_years=None):
+        """ Normalizes dataset by mean and std """
+        if self.normalize:
+            if mean is None or std is None:
+                try:
+                    print('Loading means and standard deviations from disk')
+                    mean, std, level, level_names = load_mean_std(res_dir, var_dict, train_years)
+                    assert np.all( level_names == self.level_names )
+                    mean, std = dask.array.from_array(mean), dask.array.from_array(std)
+                except:
+                    print('WARNING! Could not load means and stds.')
+                    mean = self.data.data.mean(axis=[0,2,3]) if mean is None else mean
+                    std = self.data.data.std(axis=[0,2,3]) if std is None else std
+            self.data.data = (self.data.data - mean.reshape(1,-1,1,1)) / std.reshape(1,-1,1,1)
+        self.mean, self.std = mean, std
+
+    def __getitem__(self, index):
+        """ Generate one batch of data """
+        assert np.min(index) >= self.start
+        idx = np.asarray(index)
         X = self.data.data[idx,:,:,:]
         y = self.data.data[idx + self.lead_time,:,:,:][:, self._target_idx, :, :]
 
@@ -148,33 +234,14 @@ class Dataset(torch.utils.data.IterableDataset):
 
         return X, y
 
-    # for large batch-sizes, this is orders of magnitures faster than for non-iterable Dataset()
-    # __iter__() based on Example 1 in documentation of torch.utils.data.IterableDataset
     def __iter__(self):
         """ Return iterable over data in random order """
-        if torch.utils.data.get_worker_info() is None:
-            iter_start = torch.tensor(self.start, requires_grad=False, dtype=torch.int)
-            iter_end = torch.tensor(self.end, requires_grad=False, dtype=torch.int)  
-        else: 
-            worker_info = torch.utils.data.get_worker_info()
-            worker_id, num_workers = worker_info.id, worker_info.num_workers
-            worker_yrs = math.ceil(len(self.data.chunks[0])/num_workers)
-            cumidx = np.concatenate(([0], np.cumsum(self.data.chunks[0])))
-            iter_start = cumidx[worker_id*worker_yrs] + self.start 
-            iter_start = torch.tensor(iter_start, requires_grad=False, dtype=torch.int)
-            iter_end = min(cumidx[min((worker_id+1)*worker_yrs, len(self.data.chunks[0]))], self.end) 
-            iter_end = torch.tensor(iter_end - self.lead_time, requires_grad=False, dtype=torch.int)
-            if self.verbose:
-                print(f'worker stats: worker #{worker_id} / {num_workers}')
-                print('len(data.chunks)', len(self.data.chunks[0]))
-                print('#assigned years:', worker_yrs)
-                print('index start', iter_start)
-                print('index end', iter_end)
-
-        idx = np.arange(iter_start, iter_end)
+        iter_start, iter_end = self.divide_workers()
         if self.randomize_order:
-            idx = torch.randperm(iter_end - iter_start).cpu().numpy()
-
+            idx = (torch.randperm(iter_end - iter_start) + iter_start).cpu().numpy()
+        else: 
+            idx = torch.arange(iter_start, iter_end).cpu().numpy()
+            
         X = self.data.data[idx,:,:,:]
         y = self.data.data[idx + self.lead_time, :, :, :][:, self._target_idx, :, :]
 
@@ -185,6 +252,3 @@ class Dataset(torch.utils.data.IterableDataset):
             X = dask.array.concatenate(Xl, axis=1) if len (idx) > 1 else dask.array.concatenate(Xl, axis=0)
 
         return zip(X,y)
-
-    def __len__(self):
-        return self.data.isel(time=slice(0, -self.lead_time)).shape[0]
