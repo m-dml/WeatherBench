@@ -36,8 +36,10 @@ def run_exp(exp_id, datadir, res_dir, model_name,
         dg_validation, batch_size=batch_size, drop_last=False
     )
     train_loader = torch.utils.data.DataLoader(
-        dg_train, batch_size=batch_size, drop_last=True
+        dg_train, batch_size=batch_size, collate_fn=collate_fn, drop_last=True,
+        num_workers=int(train_years[1]) - int(train_years[0]) + 1,
     )
+
     n_channels = len(dg_train.data.level.level) * (len(dg_train.past_times)+1)
     print('n_channels', n_channels)
     model_fn = f'{exp_id}_{n_channels}D_fc{model_name}_{lead_time}h.pt'
