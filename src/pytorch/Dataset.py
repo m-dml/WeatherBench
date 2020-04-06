@@ -96,7 +96,7 @@ class BaseDataset(torch.utils.data.IterableDataset):
         self.output_idxs = range(len(self.data.level))
 
         # normalize (optional)
-        self.norm(mean, std, res_dir, var_dict, train_years)
+        self.norm(mean, std, res_dir, var_dict, train_years, norm_subsample)
 
         self.valid_time = self.data.isel(time=slice(lead_time+self.max_input_lag, None)).time
 
@@ -126,17 +126,17 @@ class BaseDataset(torch.utils.data.IterableDataset):
     def divide_workers(self):
         """ parallelized data loading via torch.util.data.Dataloader """
         if torch.utils.data.get_worker_info() is None:
-            iter_start = torch.tensor(self.start, requires_grad=False, dtype=torch.int)
-            iter_end = torch.tensor(self.end, requires_grad=False, dtype=torch.int)
+            iter_start = torch.tensor(self.start, requires_grad=False, dtype=torch.int, device='cpu')
+            iter_end = torch.tensor(self.end, requires_grad=False, dtype=torch.int, device='cpu')
         else: 
             worker_info = torch.utils.data.get_worker_info()
             worker_id, num_workers = worker_info.id, worker_info.num_workers
             worker_yrs = math.ceil(len(self.data.chunks[0])/num_workers)
             cumidx = np.concatenate(([0], np.cumsum(self.data.chunks[0])))
             iter_start = cumidx[worker_id*worker_yrs] + self.start 
-            iter_start = torch.tensor(iter_start, requires_grad=False, dtype=torch.int)
+            iter_start = torch.tensor(iter_start, requires_grad=False, dtype=torch.int, device='cpu')
             iter_end = min(cumidx[min((worker_id+1)*worker_yrs, len(self.data.chunks[0]))], self.end) 
-            iter_end = torch.tensor(iter_end - self.lead_time, requires_grad=False, dtype=torch.int)
+            iter_end = torch.tensor(iter_end - self.lead_time, requires_grad=False, dtype=torch.int, device='cpu')
             if self.verbose:
                 print(f'worker stats: worker #{worker_id + 1} / {num_workers}')
                 print('len(data.chunks)', len(self.data.chunks[0]))
@@ -149,7 +149,7 @@ class BaseDataset(torch.utils.data.IterableDataset):
 
 class Dataset_xr(BaseDataset):
 
-    def norm(self, mean, std, res_dir=None, var_dict=None, train_years=None):
+    def norm(self, mean, std, res_dir=None, var_dict=None, train_years=None, norm_subsample=1):
         """ Normalizes dataset by mean and std """
         if self.normalize:
             if mean is None or std is None:
@@ -185,9 +185,9 @@ class Dataset_xr(BaseDataset):
         """ Return iterable over data in random order """
         iter_start, iter_end = self.divide_workers()
         if self.randomize_order:
-            idx = torch.randperm((iter_end - iter_start) + iter_start).cpu()
+            idx = torch.randperm(iter_end - iter_start, device='cpu') + iter_start
         else: 
-            idx = torch.arange(iter_start, iter_end, requires_grad=False).cpu()
+            idx = torch.arange(iter_start, iter_end, requires_grad=False, device='cpu')
 
         X = self.data.isel(time=idx).values
         y = self.data.isel(time=idx + self.lead_time, level=self._target_idx).values
@@ -203,7 +203,7 @@ class Dataset_xr(BaseDataset):
 
 class Dataset_dask(BaseDataset):
 
-    def norm(self, mean, std, res_dir=None, var_dict=None, train_years=None):
+    def norm(self, mean, std, res_dir=None, var_dict=None, train_years=None, norm_subsample=1):
         """ Normalizes dataset by mean and std """
         if self.normalize:
             if mean is None or std is None:
@@ -238,9 +238,9 @@ class Dataset_dask(BaseDataset):
         """ Return iterable over data in random order """
         iter_start, iter_end = self.divide_workers()
         if self.randomize_order:
-            idx = (torch.randperm(iter_end - iter_start) + iter_start).cpu().numpy()
+            idx = (torch.randperm(iter_end - iter_start, device='cpu') + iter_start).numpy()
         else: 
-            idx = torch.arange(iter_start, iter_end).cpu().numpy()
+            idx = torch.arange(iter_start, iter_end, device='cpu').numpy()
             
         X = self.data.data[idx,:,:,:]
         y = self.data.data[idx + self.lead_time, :, :, :][:, self._target_idx, :, :]
