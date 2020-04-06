@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 import xarray as xr
+import dask
 
 def load_mean_std(res_dir, var_dict, train_years):
 
@@ -115,43 +116,56 @@ class Dataset(torch.utils.data.IterableDataset):
         """ Generate one batch of data """
         assert np.min(index) >= self.start
         idx = np.asarray(index)
-        X = self.data.isel(time=idx).values
+
+        X = self.data.data[idx,:,:,:]
+        y = self.data.data[idx + self.lead_time,:,:,:][:, self._target_idx, :, :]
+
         if self.max_input_lag > 0:
             Xl = [X]
             for l in self.past_times:
-                Xl.append(self.data.isel(time=idx+l).values)
-            X = np.concatenate(Xl, axis=1) if len (idx) > 1 else np.concatenate(Xl, axis=0)         
-        y = self.data.isel(time=idx + self.lead_time, level=self._target_idx).values
+                Xl.append(self.data.data[idx+l,:,:,:])
+            X = dask.array.concatenate(Xl, axis=1) if len (idx) > 1 else dask.array.concatenate(Xl, axis=0)
+
         return X, y
 
     # for large batch-sizes, this is orders of magnitures faster than for non-iterable Dataset()
     # __iter__() based on Example 1 in documentation of torch.utils.data.IterableDataset
     def __iter__(self):
         """ Return iterable over data in random order """
-        worker_info = torch.utils.data.get_worker_info()
-        if worker_info is None:  # single-process data loading, return the full iterator
+        if torch.utils.data.get_worker_info() is None:
             iter_start = torch.tensor(self.start, requires_grad=False, dtype=torch.int)
-            iter_end = torch.tensor(self.end, requires_grad=False, dtype=torch.int)
-        else:  # in a worker process
-            # split workload
-            per_worker = int(math.ceil((self.end - self.start) / float(worker_info.num_workers)))
-            worker_id = worker_info.id
-            iter_start = torch.tensor(self.start + worker_id * per_worker, requires_grad=False, dtype=torch.int)
-            iter_end = torch.tensor(min(iter_start + per_worker, self.end), requires_grad=False, dtype=torch.int)
-
-        if self.randomize_order:
-            idx = torch.randperm((iter_end - iter_start) + iter_start).cpu()
+            iter_end = torch.tensor(self.end, requires_grad=False, dtype=torch.int)  
         else: 
-            idx = torch.arange(iter_start, iter_end, requires_grad=False).cpu()
+            worker_info = torch.utils.data.get_worker_info()
+            worker_id, num_workers = worker_info.id, worker_info.num_workers
+            worker_yrs = math.ceil(len(self.data.chunks[0])/num_workers)
+            cumidx = np.concatenate(([0], np.cumsum(self.data.chunks[0])))
+            iter_start = cumidx[worker_id*worker_yrs] + self.start 
+            iter_start = torch.tensor(iter_start, requires_grad=False, dtype=torch.int)
+            iter_end = min(cumidx[min((worker_id+1)*worker_yrs, len(self.data.chunks[0]))], self.end) 
+            iter_end = torch.tensor(iter_end - self.lead_time, requires_grad=False, dtype=torch.int)
+            print('len(cumidx)', len(cumidx))
+            print('num_workers', num_workers)
+            print('len(data.chunks)', len(self.data.chunks[0]))
+            print('worker_id', worker_id)
+            print('worker_yrs', worker_yrs)
+            print('iter_start', iter_start)
+            print('iter_end', iter_end)
 
-        X = self.data.isel(time=idx).values
+        idx = np.arange(iter_start, iter_end)
+        if self.randomize_order:
+            idx = torch.randperm(iter_end - iter_start).cpu().numpy() # torch for seed, numpy for dask
+
+        X = self.data.data[idx,:,:,:]
+        y = self.data.data[idx + self.lead_time, :, :, :][:, self._target_idx, :, :]
+
         if self.max_input_lag > 0:
             Xl = [X]
             for l in self.past_times:
-                Xl.append(self.data.isel(time=idx+l).values)
-            X = np.concatenate(Xl, axis=1) # stack past time points along channel dimension        
-        y = self.data.isel(time=idx + self.lead_time, level=self._target_idx).values
-        return zip(X, y)
+                Xl.append(self.data.data[idx+l,:,:,:])
+            X = dask.array.concatenate(Xl, axis=1) if len (idx) > 1 else dask.array.concatenate(Xl, axis=0)
+
+        return zip(X,y)
     
     def __len__(self):
         return self.data.isel(time=slice(0, -self.lead_time)).shape[0]
