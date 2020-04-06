@@ -2,6 +2,7 @@ import numpy as np
 import torch
 import xarray as xr
 import dask
+import math
 
 def load_mean_std(res_dir, var_dict, train_years):
 
@@ -39,7 +40,7 @@ class Dataset(torch.utils.data.IterableDataset):
     def __init__(self, ds, var_dict, lead_time, mean=None, std=None, load=False,
                  start=None, end=None, normalize=False, norm_subsample=1, randomize_order=True,
                  target_var_dict={'geopotential' : 500, 'temperature' : 850}, 
-                 dtype=np.float32, res_dir=None, train_years=None, past_times=[]):
+                 dtype=np.float32, res_dir=None, train_years=None, past_times=[], verbose=False):
 
         self.ds = ds
         self.var_dict = var_dict
@@ -47,6 +48,7 @@ class Dataset(torch.utils.data.IterableDataset):
         self.past_times = past_times
         self.normalize = normalize
         self.randomize_order = randomize_order
+        self.verbose = verbose
 
         # indexing for __getitem__ and __iter__ to find targets Z500, T850
         assert np.all(var in var_dict.keys() for var in target_var_dict.keys())
@@ -116,7 +118,16 @@ class Dataset(torch.utils.data.IterableDataset):
         """ Generate one batch of data """
         assert np.min(index) >= self.start
         idx = np.asarray(index)
-
+        """
+        X = self.data.isel(time=idx).values
+        if self.max_input_lag > 0:
+            Xl = [X]
+            for l in self.past_times:
+                Xl.append(self.data.isel(time=idx+l).values)
+            X = np.concatenate(Xl, axis=1) if len (idx) > 1 else np.concatenate(Xl, axis=0)         
+        y = self.data.isel(time=idx + self.lead_time, level=self._target_idx).values
+        """
+        
         X = self.data.data[idx,:,:,:]
         y = self.data.data[idx + self.lead_time,:,:,:][:, self._target_idx, :, :]
 
@@ -144,17 +155,16 @@ class Dataset(torch.utils.data.IterableDataset):
             iter_start = torch.tensor(iter_start, requires_grad=False, dtype=torch.int)
             iter_end = min(cumidx[min((worker_id+1)*worker_yrs, len(self.data.chunks[0]))], self.end) 
             iter_end = torch.tensor(iter_end - self.lead_time, requires_grad=False, dtype=torch.int)
-            print('len(cumidx)', len(cumidx))
-            print('num_workers', num_workers)
-            print('len(data.chunks)', len(self.data.chunks[0]))
-            print('worker_id', worker_id)
-            print('worker_yrs', worker_yrs)
-            print('iter_start', iter_start)
-            print('iter_end', iter_end)
+            if self.verbose:
+                print(f'worker stats: worker #{worker_id} / {num_workers}')
+                print('len(data.chunks)', len(self.data.chunks[0]))
+                print('#assigned years:', worker_yrs)
+                print('index start', iter_start)
+                print('index end', iter_end)
 
         idx = np.arange(iter_start, iter_end)
         if self.randomize_order:
-            idx = torch.randperm(iter_end - iter_start).cpu().numpy() # torch for seed, numpy for dask
+            idx = torch.randperm(iter_end - iter_start).cpu().numpy()
 
         X = self.data.data[idx,:,:,:]
         y = self.data.data[idx + self.lead_time, :, :, :][:, self._target_idx, :, :]
@@ -166,6 +176,6 @@ class Dataset(torch.utils.data.IterableDataset):
             X = dask.array.concatenate(Xl, axis=1) if len (idx) > 1 else dask.array.concatenate(Xl, axis=0)
 
         return zip(X,y)
-    
+
     def __len__(self):
         return self.data.isel(time=slice(0, -self.lead_time)).shape[0]
