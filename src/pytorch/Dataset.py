@@ -25,6 +25,15 @@ def load_mean_std(res_dir, var_dict, train_years):
     return mean, std, level, level_names
 
 
+def collate_fn(batch):
+    r""" Collate function for Dataset class and torch.utils.data.DataLoader
+    
+    """
+    X_stack = dask.array.stack([X for X,_ in batch], axis=0).compute()
+    Y_stack = dask.array.stack([y for _,y in batch], axis=0).compute()
+    return (torch.tensor(X_stack, requires_grad=False), torch.tensor(Y_stack, requires_grad=False))
+
+
 class Dataset(torch.utils.data.IterableDataset):
     r"""A class representing a :class:`Dataset`.
     
