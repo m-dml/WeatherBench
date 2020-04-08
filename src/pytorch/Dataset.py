@@ -15,7 +15,7 @@ def load_mean_std(res_dir, var_dict, train_years):
         short_name, lvls = ('lat2d', var_dict[var]) if var=='constants' else var_dict[var]
         idx =[]
         for lvl in lvls:
-            idx.append(np.where(lvl == m.level.values)[0])
+            idx.append(np.where(lvl == m.level.values)[0] if not lvl is None else np.where(1 == m.level.values)[0])
             level_names.append(lvl if var=='constants' else short_name + '_' + str(lvl))
             level.append(1 if var=='constants' else lvl)
         idx = np.concatenate(idx)
