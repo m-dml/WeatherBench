@@ -48,7 +48,7 @@ class BaseDataset(torch.utils.data.IterableDataset):
 
     def __init__(self, ds, var_dict, lead_time, mean=None, std=None, load=False,
                  start=None, end=None, normalize=False, norm_subsample=1, randomize_order=True,
-                 target_var_dict={'geopotential' : 500, 'temperature' : 850}, 
+                 target_var_dict={'geopotential' : 500, 'temperature' : 850},
                  dtype=np.float32, res_dir=None, train_years=None, past_times=[], verbose=False):
 
         self.ds = ds
@@ -252,3 +252,85 @@ class Dataset_dask(BaseDataset):
             X = dask.array.concatenate(Xl, axis=1) if len (idx) > 1 else dask.array.concatenate(Xl, axis=0)
 
         return zip(X,y)
+
+
+class Dataset_dask_thinning(BaseDataset):
+
+    def __init__(self, ds, var_dict, lead_time, mean=None, std=None, load=False,
+                 start=None, end=None, normalize=False, norm_subsample=1, randomize_order=True,
+                 target_var_dict={'geopotential' : 500, 'temperature' : 850}, thinning=1,
+                 dtype=np.float32, res_dir=None, train_years=None, past_times=[], verbose=False):
+        
+    
+        super().__init__(ds=ds, var_dict=var_dict, lead_time=lead_time, 
+                         mean=mean, std=std, load=load, start=start, end=end,
+                         normalize=normalize, norm_subsample=norm_subsample, 
+                         randomize_order=randomize_order, target_var_dict=target_var_dict,
+                         dtype=dtype, res_dir=res_dir, train_years=train_years, 
+                         past_times=past_times, verbose=verbose)
+        
+        self.thinning = thinning
+        self.ith = 0
+        self.idx = None
+    
+    def norm(self, mean, std, res_dir=None, var_dict=None, train_years=None, norm_subsample=1):
+        """ Normalizes dataset by mean and std """
+        if self.normalize:
+            if mean is None or std is None:
+                try:
+                    print('Loading means and standard deviations from disk')
+                    mean, std, level, level_names = load_mean_std(res_dir, var_dict, train_years)
+                    assert np.all( level_names == self.level_names )
+                    mean, std = dask.array.from_array(mean), dask.array.from_array(std)
+                except:
+                    print('WARNING! Could not load means and stds.')
+                    mean = self.data.data.mean(axis=[0,2,3]) if mean is None else mean
+                    std = self.data.data.std(axis=[0,2,3]) if std is None else std
+            self.data.data = (self.data.data - mean.reshape(1,-1,1,1)) / std.reshape(1,-1,1,1)
+        self.mean, self.std = mean, std
+
+    def __getitem__(self, index):
+        """ Generate one batch of data """
+        assert np.min(index) >= self.start
+        idx = np.asarray(index)
+        X = self.data.data[idx,:,:,:]
+        y = self.data.data[idx + self.lead_time,:,:,:][:, self._target_idx, :, :]
+
+        if self.max_input_lag > 0:
+            Xl = [X]
+            for l in self.past_times:
+                Xl.append(self.data.data[idx+l,:,:,:])
+            X = dask.array.concatenate(Xl, axis=1) if len (idx) > 1 else dask.array.concatenate(Xl, axis=0)
+
+        return X, y
+
+    def __iter__(self):
+        """ Return iterable over data in random order """
+
+        if not torch.utils.data.get_worker_info() is None:
+            raise Exception('this Dataset class only works for num_workers=0 ')
+        iter_start, iter_end = self.divide_workers()        
+        
+        print(f'ith/thinning = {self.ith}/{self.thinning}')
+        
+        if self.ith == 0 and self.randomize_order:
+            print('creating new random permutation of indices ')
+            self.idx = (torch.randperm(iter_end - iter_start, device='cpu') + iter_start).numpy()
+        elif not self.randomize_order: 
+            self.idx = torch.arange(iter_start, iter_end, device='cpu').numpy()            
+        idx = self.idx[self.ith::self.thinning]
+        self.ith = np.mod(self.ith+1, self.thinning)
+    
+        print('self.idx[:10]', self.idx[:10])
+        print('idx[:10]', idx[:10])
+        
+        X = self.data.data[idx,:,:,:]
+        y = self.data.data[idx + self.lead_time, :, :, :][:, self._target_idx, :, :]
+
+        if self.max_input_lag > 0:
+            Xl = [X]
+            for l in self.past_times:
+                Xl.append(self.data.data[idx+l,:,:,:])
+            X = dask.array.concatenate(Xl, axis=1) if len (idx) > 1 else dask.array.concatenate(Xl, axis=0)
+
+        return zip(X.compute(),y.compute())
