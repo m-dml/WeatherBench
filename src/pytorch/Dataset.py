@@ -335,6 +335,15 @@ class Dataset_dask_thinning(BaseDataset):
 
         return zip(X.compute(),y.compute())
 
+    
+def collate_fn_memmap(batch, dg):
+    # batch here is just a list of indices
+    X = dg.data[(batch + dg._past_idx).flatten().reshape(-1,1), dg._var_idx, :, :]
+    X = X.reshape((len(batch), -1, *X.shape[2:]))
+    y = dg.data[np.array(batch).reshape(-1,1) + dg.lead_time, dg._target_idx, :, :]
+    return (torch.as_tensor(X, device='cpu'), torch.as_tensor(y, device='cpu'))    
+
+
 class Dataset_memmap(BaseDataset):
 
     def __init__(self, filedir, leveldir, var_dict, lead_time, mean=None, std=None, load=False,
@@ -409,10 +418,12 @@ class Dataset_memmap(BaseDataset):
             idx = torch.arange(iter_start, iter_end, device='cpu').numpy()            
 
         for i in idx:
-            X = self.data[i + self._past_idx, self._var_idx, :, :]
-            X = X.reshape((np.prod(X.shape[:2]), *X.shape[2:]))
-            y = self.data[i + self.lead_time, self._target_idx, :, :]
-            yield (X,y)
+            yield i # only return index here and access self.data in during batch collation
+
+            #X = self.data[i + self._past_idx, self._var_idx, :, :]
+            #shape = (np.prod(X.shape[:2]), *X.shape[2:])
+            #y = self.data[i + self.lead_time, self._target_idx, :, :]
+            #yield (X,y)
 
     def divide_workers(self):
         """ parallelized data loading via torch.util.data.Dataloader """
@@ -432,4 +443,3 @@ class Dataset_memmap(BaseDataset):
                 print('index start', iter_start)
                 print('index end', iter_end)
         return iter_start, iter_end
-        
