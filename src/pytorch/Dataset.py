@@ -365,7 +365,7 @@ class Dataset_memmap(BaseDataset):
         self.randomize_order = randomize_order
         
         self.past_times = past_times if 0 in past_times else [0] + past_times
-        self._past_idx = np.asarray(past_times).reshape(-1,1) 
+        self._past_idx = np.asarray(self.past_times).reshape(-1,1) 
         self.lead_time = lead_time
         
         self.max_input_lag = -np.min(self.past_times) if len(self.past_times) > 0 else 0
