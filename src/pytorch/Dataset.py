@@ -410,7 +410,7 @@ class Dataset_memmap(BaseDataset):
 
         for i in idx:
             X = self.data[i + self._past_idx, self._var_idx, :, :]
-            shape = (np.prod(X.shape[:2]), *X.shape[2:])
+            X = X.reshape((np.prod(X.shape[:2]), *X.shape[2:]))
             y = self.data[i + self.lead_time, self._target_idx, :, :]
             yield (X,y)
 
