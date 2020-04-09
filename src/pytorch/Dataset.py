@@ -334,3 +334,102 @@ class Dataset_dask_thinning(BaseDataset):
             X = dask.array.concatenate(Xl, axis=1) if len (idx) > 1 else dask.array.concatenate(Xl, axis=0)
 
         return zip(X.compute(),y.compute())
+
+class Dataset_memmap(BaseDataset):
+
+    def __init__(self, filedir, leveldir, var_dict, lead_time, mean=None, std=None, load=False,
+                 start=None, end=None, randomize_order=True,
+                 target_var_dict={'geopotential' : 500, 'temperature' : 850}, 
+                 dtype=np.float32, past_times=[], verbose=False):
+
+        self.data = data = np.load(filedir, mmap_mode='r')
+        self.level_names = np.load(leveldir)
+        
+        # indexing for __getitem__ and __iter__ to find targets Z500, T850
+        assert np.all(var in var_dict.keys() for var in target_var_dict.keys())
+        assert np.all(level in var_dict[var][1] for var, level in target_var_dict.items())
+        
+        self.var_dict = var_dict
+        idx =[]
+        for var in var_dict.keys():
+            if var=='constants':
+                for lvl in var_dict[var]:
+                    idx.append(np.where(lvl == self.level_names)[0])
+            else:
+                short_name, lvls = var_dict[var]
+                for lvl in lvls:
+                    tag = short_name + '_' + str(lvl) if not lvl is None else short_name + '_1'
+                    idx.append(np.where(tag == self.level_names)[0])
+        self._var_idx = np.concatenate(idx)
+        
+        self.randomize_order = randomize_order
+        
+        self.past_times = past_times if 0 in past_times else [0] + past_times
+        self._past_idx = np.asarray(past_times).reshape(-1,1) 
+        self.lead_time = lead_time
+        
+        self.max_input_lag = -np.min(self.past_times) if len(self.past_times) > 0 else 0
+        if start is None or end is None:
+            start = np.max([0, self.max_input_lag])
+            end = self.data.shape[0]-self.lead_time
+        assert end > start, "this example code only works with end >= start"
+        assert start >= self.max_input_lag
+        self.start, self.end = start, end
+
+        self.verbose = verbose
+
+        self._target_idx = []
+        for var, level in target_var_dict.items():
+            target_name = var_dict[var][0] + '_' + str(level)
+            self._target_idx += [np.where(np.array(self.level_names) == target_name)[0][0]]
+        
+    def __getitem__(self, index):
+        """ Generate one batch of data """
+        assert np.min(index) >= self.start
+        idx = np.atleast_1d(np.asarray(index))
+        assert idx.ndim == 1
+        idx = idx.reshape(-1,1) # reshape for outer indexing in numpy arrays
+        X = self.data[idx,self._var_idx,:,:]
+        y = self.data[idx + self.lead_time,self._target_idx,:,:]
+
+        if self.max_input_lag > 0:
+            Xl = [X]
+            for l in self.past_times:
+                Xl.append(self.data[idx+l,self._var_idx,:,:])
+            X = np.concatenate(Xl, axis=1) if len (idx) > 1 else np.concatenate(Xl, axis=0)
+        return X, y
+
+    def __iter__(self):
+        """ Return iterable over data in random order """
+        iter_start, iter_end = self.divide_workers()        
+
+        if self.randomize_order:
+            idx = (torch.randperm(iter_end - iter_start, device='cpu') + iter_start).numpy()
+        elif not self.randomize_order: 
+            idx = torch.arange(iter_start, iter_end, device='cpu').numpy()            
+
+        for i in idx:
+            X = self.data[i + self._past_idx, self._var_idx, :, :]
+            shape = (np.prod(X.shape[:2]), *X.shape[2:])
+            y = self.data[i + self.lead_time, self._target_idx, :, :]
+            yield (X,y)
+
+    def divide_workers(self):
+        """ parallelized data loading via torch.util.data.Dataloader """
+        if torch.utils.data.get_worker_info() is None:
+            iter_start = torch.tensor(self.start, requires_grad=False, dtype=torch.int, device='cpu')
+            iter_end = torch.tensor(self.end, requires_grad=False, dtype=torch.int, device='cpu')
+        else: 
+            worker_info = torch.utils.data.get_worker_info()
+            worker_id, num_workers = worker_info.id, worker_info.num_workers
+            per_worker = int(math.ceil((self.end - self.start) / float(num_workers)))
+            iter_start = self.start + worker_id * per_worker
+            iter_start = torch.tensor(iter_start, requires_grad=False, dtype=torch.int, device='cpu')
+            iter_end = min(iter_start + per_worker, self.end)
+            iter_end = torch.tensor(iter_end - self.lead_time, requires_grad=False, dtype=torch.int, device='cpu')
+            if self.verbose:
+                print(f'worker stats: worker #{worker_id + 1} / {num_workers}')
+                print('index start', iter_start)
+                print('index end', iter_end)
+        return iter_start, iter_end
+        
