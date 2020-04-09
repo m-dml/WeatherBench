@@ -72,7 +72,7 @@ train_loader = torch.utils.data.DataLoader(
 
 import time
 
-max_steps = 1e5
+max_steps = 1000
 print_every = 100
 
 def do_dummy_epoch(train_loader, t = None):
@@ -88,5 +88,51 @@ def do_dummy_epoch(train_loader, t = None):
         if num_steps > max_steps:
             break
 
-t = time.time()
-do_dummy_epoch(train_loader, t)
+test_case = 'datapoint'
+
+                  
+if test_case == 'epoch':
+    t = time.time()
+    do_dummy_epoch(train_loader, t)
+                  
+elif test_case == 'buffer':
+    idx = np.random.choice(350000, 100*batch_size)
+    mmap = dg_train.data    # load everything at once
+    print('testing loading full buffer')
+    t = time.time()
+    l = len(idx)
+    out = mmap[(idx + dg_train._past_idx).flatten().reshape(-1,1), dg_train._var_idx, :, :]
+    out = out.reshape((len(idx), -1, *out.shape[2:]))    
+    print('total time: ', time.time() - t)
+    print('elements loaded: ', l)
+    print('output shape of individual load:', out.shape)
+
+elif test_case == 'minibatch':
+    idx = np.random.choice(350000, 100*batch_size)
+    mmap = dg_train.data    # load everything at once
+    print('testing loading full minibatches')
+    t = time.time()
+    l = 0
+    for i in range(100):    
+        idx_i = idx[i*batch_size:(i+1)*batch_size]
+        l += len(idx_i) 
+        out = mmap[(idx_i + dg_train._past_idx).flatten().reshape(-1,1), dg_train._var_idx, :, :]
+        out = out.reshape((len(idx_i), -1, *out.shape[2:]))    
+    print('total time: ', time.time() - t)
+    print('elements loaded: ', l)
+    print('output shape of individual load:', out.shape)
+
+elif test_case == 'datapoint':
+    idx = np.random.choice(350000, 100*batch_size)
+    mmap = dg_train.data    # load everything at once
+    print('testing loading individual time points')
+    t = time.time()
+    l = 0
+    for i in range(3200):    
+        idx_i = idx[i:(i+1)]
+        l += len(idx_i) 
+        out = mmap[(idx_i + dg_train._past_idx).flatten().reshape(-1,1), dg_train._var_idx, :, :]
+        out = out.reshape((len(idx_i), -1, *out.shape[2:]))    
+    print('total time: ', time.time() - t)
+    print('elements loaded: ', l)
+    print('output shape of individual load:', out.shape)
