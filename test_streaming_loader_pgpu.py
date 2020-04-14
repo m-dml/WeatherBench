@@ -73,7 +73,7 @@ train_loader = torch.utils.data.DataLoader(
 import time
 
 max_steps = 1000
-print_every = 100
+print_every = 10
 
 def do_dummy_epoch(train_loader, t = None):
     # check I/O speed on single (empty) epoch
@@ -88,8 +88,7 @@ def do_dummy_epoch(train_loader, t = None):
         if num_steps > max_steps:
             break
 
-test_case = 'datapoint'
-
+test_case = 'epoch'
                   
 if test_case == 'epoch':
     t = time.time()
