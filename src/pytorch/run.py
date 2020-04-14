@@ -43,7 +43,8 @@ def run_exp(exp_id, datadir, res_dir, mmap_mode, model_name,
         return collate_fn_memmap(batch, dg_train)
 
     validation_loader = torch.utils.data.DataLoader(
-        dg_validation, batch_size=batch_size, drop_last=False
+        dg_validation, batch_size=batch_size, collate_fn=collate_fn, drop_last=False,
+        num_workers=0 #int(train_years[1]) - int(train_years[0]) + 1
     )
     train_loader = torch.utils.data.DataLoader(
         dg_train, batch_size=batch_size, collate_fn=collate_fn, drop_last=True,
