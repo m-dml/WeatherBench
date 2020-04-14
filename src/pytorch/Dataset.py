@@ -340,8 +340,9 @@ def collate_fn_memmap(batch, dg):
     # batch here is just a list of indices
     X = dg.data[(batch + dg._past_idx).flatten().reshape(-1,1), dg._var_idx, :, :]
     X = X.reshape((len(batch), -1, *X.shape[2:]))
+    # find time point t, time-offset d and field index i as X[t,(2-d)*n_fields+i,:,:]
     y = dg.data[np.array(batch).reshape(-1,1) + dg.lead_time, dg._target_idx, :, :]
-    return (torch.as_tensor(X, device='cpu'), torch.as_tensor(y, device='cpu'))    
+    return (torch.as_tensor(X, device='cpu'), torch.as_tensor(y, device='cpu'))
 
 
 class Dataset_memmap(BaseDataset):
@@ -349,9 +350,9 @@ class Dataset_memmap(BaseDataset):
     def __init__(self, filedir, leveldir, var_dict, lead_time, mean=None, std=None, load=False,
                  start=None, end=None, randomize_order=True,
                  target_var_dict={'geopotential' : 500, 'temperature' : 850}, 
-                 dtype=np.float32, past_times=[], verbose=False):
+                 dtype=np.float32, past_times=[], mmap_mode='r', verbose=False):
 
-        self.data = data = np.load(filedir, mmap_mode='r')
+        self.data = data = np.load(filedir, mmap_mode=mmap_mode)
         self.level_names = np.load(leveldir)
         
         # indexing for __getitem__ and __iter__ to find targets Z500, T850
@@ -374,7 +375,7 @@ class Dataset_memmap(BaseDataset):
         self.randomize_order = randomize_order
         
         self.past_times = past_times if 0 in past_times else [0] + past_times
-        self._past_idx = np.asarray(self.past_times).reshape(-1,1) 
+        self._past_idx = np.sort(np.asarray(self.past_times)).reshape(-1,1)
         self.lead_time = lead_time
         
         self.max_input_lag = -np.min(self.past_times) if len(self.past_times) > 0 else 0
@@ -397,15 +398,12 @@ class Dataset_memmap(BaseDataset):
         assert np.min(index) >= self.start
         idx = np.atleast_1d(np.asarray(index))
         assert idx.ndim == 1
-        idx = idx.reshape(-1,1) # reshape for outer indexing in numpy arrays
-        X = self.data[idx,self._var_idx,:,:]
-        y = self.data[idx + self.lead_time,self._target_idx,:,:]
 
-        if self.max_input_lag > 0:
-            Xl = [X]
-            for l in self.past_times:
-                Xl.append(self.data[idx+l,self._var_idx,:,:])
-            X = np.concatenate(Xl, axis=1) if len (idx) > 1 else np.concatenate(Xl, axis=0)
+        X = self.data[(idx + self._past_idx).flatten().reshape(-1,1), self._var_idx, :, :]
+        X = X.reshape((len(idx), -1, *X.shape[2:]))
+        # find time point t, time-offset d and field index i as X[t,(2-d)*n_fields+i,:,:]
+        y = self.data[idx.reshape(-1,1) + self.lead_time, self._target_idx, :, :]
+
         return X, y
 
     def __iter__(self):
@@ -419,11 +417,6 @@ class Dataset_memmap(BaseDataset):
 
         for i in idx:
             yield i # only return index here and access self.data in during batch collation
-
-            #X = self.data[i + self._past_idx, self._var_idx, :, :]
-            #shape = (np.prod(X.shape[:2]), *X.shape[2:])
-            #y = self.data[i + self.lead_time, self._target_idx, :, :]
-            #yield (X,y)
 
     def divide_workers(self):
         """ parallelized data loading via torch.util.data.Dataloader """
