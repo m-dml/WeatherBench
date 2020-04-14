@@ -1,6 +1,7 @@
 exp_id: multi_delay_test
 datadir: /gpfs/work/nonnenma/data/forecast_predictability/weatherbench/5_625deg/
 res_dir: /gpfs/work/nonnenma/results/forecast_predictability/weatherbench/5_625deg/
+mmap_mode: None
 lead_time: 72
 past_times: [-12, -6]
 model_name: simpleResnet
@@ -13,11 +14,11 @@ dropout_rate: 0.1
 lr: 5e-4
 lr_min: 1e-6
 lr_decay: 0.2
-weight_decay: 1e-5
+weight_decay: 0
 max_lr_patience: 10
 max_patience: 50
 eval_every: 2000
 max_epochs: 200
-var_dict: {'geopotential': ('z', [500, 850]), 'temperature': ('t', [500, 850]), 'u_component_of_wind': ('u', [500, 850]), 'v_component_of_wind': ('v', [500, 850]),'constants': ['lsm','orography','lat2d']}
+var_dict: {'geopotential': ('z', [100, 200, 500, 850, 1000]), 'temperature': ('t', [100, 200, 500, 850, 1000]), 'u_component_of_wind': ('u', [100, 200, 500, 850, 1000]), 'v_component_of_wind': ('v', [100, 200, 500, 850, 1000]), 'constants': ['lsm','orography','lat2d']}
 filters: [128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128]
 kernel_sizes: [7, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3]
