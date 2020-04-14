@@ -1,11 +1,13 @@
 import numpy as np
 import torch
 from src.pytorch.util import init_torch_device, load_data, named_network
+from src.pytorch.Dataset import collate_fn_memmap
 from src.pytorch.train import train_model, loss_function
 from src.pytorch.train_nn import create_predictions
 from src.score import compute_weighted_rmse, load_test_data
 from configargparse import ArgParser
 import ast
+import subprocess
 
 import os
 def mkdir_p(dir):
@@ -13,7 +15,7 @@ def mkdir_p(dir):
     if not os.path.exists(dir):
         os.mkdir(dir)
 
-def run_exp(exp_id, datadir, res_dir, model_name, 
+def run_exp(exp_id, datadir, res_dir, mmap_mode, model_name, 
             lead_time, test_years, train_years, validation_years,
             loss_fun, var_dict, past_times,
             kernel_sizes, filters, weight_decay, dropout_rate,
@@ -23,6 +25,10 @@ def run_exp(exp_id, datadir, res_dir, model_name,
     device = init_torch_device()
     target_var_dict={'geopotential': 500, 'temperature': 850}
 
+    fetch_commit = subprocess.Popen(['git', 'rev-parse', 'HEAD'], shell=False, stdout=subprocess.PIPE)
+    commit_id = fetch_commit.communicate()[0].strip().decode("utf-8")
+    fetch_commit.kill()
+    
     # load data
     dg_train, dg_validation, dg_test = load_data(
         var_dict=var_dict, lead_time=lead_time,
@@ -30,17 +36,21 @@ def run_exp(exp_id, datadir, res_dir, model_name,
         validation_years=(validation_years[0], validation_years[1]), 
         test_years=(test_years[0], test_years[1]),
         target_var_dict=target_var_dict, datadir=datadir, 
-        res_dir=res_dir, past_times=past_times
+        mmap_mode=mmap_mode, past_times=past_times
     )
+
+    def collate_fn(batch):
+        return collate_fn_memmap(batch, dg_train)
+
     validation_loader = torch.utils.data.DataLoader(
         dg_validation, batch_size=batch_size, drop_last=False
     )
     train_loader = torch.utils.data.DataLoader(
         dg_train, batch_size=batch_size, collate_fn=collate_fn, drop_last=True,
-        num_workers=int(train_years[1]) - int(train_years[0]) + 1,
+        num_workers=0 #int(train_years[1]) - int(train_years[0]) + 1
     )
 
-    n_channels = len(dg_train.data.level.level) * (len(dg_train.past_times)+1)
+    n_channels = len(dg_train._var_idx) * len(dg_train.past_times)
     print('n_channels', n_channels)
     model_fn = f'{exp_id}_{n_channels}D_fc{model_name}_{lead_time}h.pt'
     print('model filename', model_fn)
@@ -62,12 +72,9 @@ def run_exp(exp_id, datadir, res_dir, model_name,
 
         mkdir_p(save_dir)
         print('saving model state_dict to ' + save_dir + model_fn)
+        open(save_dir + commit_id + '.txt', 'w')
 
-        import subprocess
-        commit_id = subprocess.Popen(['git', 'rev-parse', 'HEAD'], shell=False, stdout=subprocess.PIPE)
-        open(save_dir + commit_id.communicate()[0].strip().decode("utf-8") + '.txt', 'w')
-
-        loss_fun = loss_function(loss_fun, extra_args={'lat': dg_train.data.lat})
+        loss_fun = loss_function(loss_fun, extra_args={'lat': np.load(datadir+'5_625deg_lat_values.npy')})
         training_outputs = train_model(
             model, train_loader, validation_loader, device, model_forward, loss_fun=loss_fun,
             weight_decay=weight_decay, max_epochs=max_epochs, max_patience=max_patience, 
@@ -98,6 +105,7 @@ def setup(conf_exp=None):
     p.add_argument('--exp_id', type=str, required=True, help='experiment id')
     p.add_argument('--datadir', type=str, required=True, help='path to data')
     p.add_argument('--res_dir', type=str, required=True, help='path to results')
+    p.add_argument('--mmap_mode', type=str, default='r', help='memmap data read mode')    
     p.add_argument('--only_eval', type=bool, default=False, help='if to evaulate saved model (=False for training)')
 
     p.add_argument('--lead_time', type=int, required=True, help='forecast lead time')
