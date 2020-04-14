@@ -11,7 +11,7 @@ def loss_function(loss_fun, extra_args={}):
 
     elif loss_fun == 'lat_mse':
         # Copied from weatherbench fork of S. Rasp: 
-        weights_lat = np.cos(np.deg2rad(extra_args['lat'])).values
+        weights_lat = np.cos(np.deg2rad(extra_args['lat']))
         weights_lat /= weights_lat.mean()
         weights_lat = torch.tensor(weights_lat, requires_grad=False)
 
