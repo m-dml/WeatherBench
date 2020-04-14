@@ -352,8 +352,8 @@ class Dataset_memmap(BaseDataset):
                  target_var_dict={'geopotential' : 500, 'temperature' : 850}, 
                  dtype=np.float32, past_times=[], mmap_mode='r', verbose=False):
 
-        self.data = data = np.load(filedir, mmap_mode=mmap_mode)
-        self.level_names = np.load(leveldir)
+        self.data = data = filedir if isinstance(filedir, np.ndarray) else np.load(filedir, mmap_mode=mmap_mode)
+        self.level_names = leveldir if isinstance(leveldir, np.ndarray) else np.load(leveldir)
         
         # indexing for __getitem__ and __iter__ to find targets Z500, T850
         assert np.all(var in var_dict.keys() for var in target_var_dict.keys())
@@ -380,7 +380,7 @@ class Dataset_memmap(BaseDataset):
         
         self.max_input_lag = -np.min(self.past_times) if len(self.past_times) > 0 else 0
         if start is None or end is None:
-            start = np.max([0, self.max_input_lag])
+            start = int(np.max([0, self.max_input_lag]))
             end = self.data.shape[0]-self.lead_time
         assert end > start, "this example code only works with end >= start"
         assert start >= self.max_input_lag
@@ -417,6 +417,9 @@ class Dataset_memmap(BaseDataset):
 
         for i in idx:
             yield i # only return index here and access self.data in during batch collation
+
+    def __len__(self):
+        return self.end - self.start
 
     def divide_workers(self):
         """ parallelized data loading via torch.util.data.Dataloader """
