@@ -4,7 +4,7 @@ import torchvision
 from .resnet import FCNResNet, CircBlock
 from .cnn import SimpleCNN
 from .unet import CircUNet
-from .Dataset import Dataset
+from .Dataset import Dataset_memmap, Dataset_xr
 import xarray as xr
 
 
@@ -20,28 +20,49 @@ def init_torch_device():
     return device
 
 
-def load_data(var_dict, lead_time, train_years, validation_years, test_years,
-              target_var_dict, datadir, res_dir=None): 
+def load_data(var_dict, lead_time, train_years, validation_years, test_years, 
+              target_var_dict, datadir, mmap_mode, past_times=[], verbose=False): 
 
-    x = xr.merge(
+    filedir = datadir + '5_625deg_all_zscored.npy'
+    leveldir = datadir + '5_625deg_all_level_names.npy'
+
+    if mmap_mode=='None' or mmap_mode is None:
+        mmap_mode = None
+        print('WARNING: will load entire dataset into memory!')
+        print('filedir:', filedir)
+
+    x = xr.merge( # lazy: use xr.merge to get hour counts per year from chunk size
     [xr.open_mfdataset(f'{datadir}/{var}/*.nc', combine='by_coords')
      for var in var_dict.keys()],
     fill_value=0  # For the 'tisr' NaNs
     )
-    x = x.chunk({'time' : np.sum(x.chunks['time']), 'lat' : x.chunks['lat'], 'lon': x.chunks['lon']})
 
-    dg_train = Dataset(x.sel(time=slice(train_years[0], train_years[1])), var_dict, lead_time, 
-                       normalize=True, norm_subsample=1, res_dir=res_dir, train_years=train_years,
-                       target_var_dict=target_var_dict)
+    def get_year_idx(yrs):
+        idx = [np.sum(x.chunks['time'][:(int(yr)-1979+i)]) for i,yr in enumerate(yrs)]
+        idx = [int(idx[0] - np.min(past_times+[0])), int(idx[1] - lead_time)] # ensure valid times
+        return idx
 
-    dg_validation = Dataset(x.sel(time=slice(validation_years[0], validation_years[1])), var_dict, lead_time,
-                            normalize=True, mean=dg_train.mean, std=dg_train.std, randomize_order=False,
-                            target_var_dict=target_var_dict)
-    
-    dg_test =  Dataset(x.sel(time=slice(test_years[0], test_years[1])), var_dict, lead_time,
-                       normalize=True, mean=dg_train.mean, std=dg_train.std, randomize_order=False,
-                       target_var_dict=target_var_dict)
-    
+    start, end = get_year_idx(train_years)
+    dg_train = Dataset_memmap(filedir=filedir, leveldir=leveldir, 
+                              var_dict=var_dict, lead_time=lead_time,
+                              start=start, end=end, randomize_order=True,
+                              target_var_dict=target_var_dict, mmap_mode=mmap_mode,
+                              dtype=np.float32, past_times=past_times, verbose=verbose)
+
+    start, end = get_year_idx(validation_years)
+    dg_validation = Dataset_memmap(filedir=dg_train.data, leveldir=dg_train.level_names, 
+                              var_dict=var_dict, lead_time=lead_time,
+                              start=start, end=end, randomize_order=False,
+                              target_var_dict=target_var_dict, mmap_mode=mmap_mode,
+                              dtype=np.float32, past_times=past_times, verbose=verbose)
+
+    start, end = get_year_idx(test_years)
+    dg_test = Dataset_memmap(filedir=dg_train.data, leveldir=dg_train.level_names, 
+                              var_dict=var_dict, lead_time=lead_time,
+                              start=start, end=end, randomize_order=False,
+                              target_var_dict=target_var_dict, mmap_mode=mmap_mode,
+                              dtype=np.float32, past_times=past_times, verbose=verbose)
+
     return dg_train, dg_validation, dg_test
 
 

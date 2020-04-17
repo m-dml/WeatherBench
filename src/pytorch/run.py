@@ -1,11 +1,13 @@
 import numpy as np
 import torch
 from src.pytorch.util import init_torch_device, load_data, named_network
+from src.pytorch.Dataset import collate_fn_memmap
 from src.pytorch.train import train_model, loss_function
 from src.pytorch.train_nn import create_predictions
 from src.score import compute_weighted_rmse, load_test_data
 from configargparse import ArgParser
 import ast
+import subprocess
 
 import os
 def mkdir_p(dir):
@@ -13,9 +15,9 @@ def mkdir_p(dir):
     if not os.path.exists(dir):
         os.mkdir(dir)
 
-def run_exp(exp_id, datadir, res_dir, model_name, 
+def run_exp(exp_id, datadir, res_dir, mmap_mode, model_name, 
             lead_time, test_years, train_years, validation_years,
-            loss_fun, var_dict,
+            loss_fun, var_dict, past_times,
             kernel_sizes, filters, weight_decay, dropout_rate,
             batch_size, max_epochs, eval_every, max_patience,
             lr, lr_min, lr_decay, max_lr_patience, only_eval):
@@ -23,21 +25,33 @@ def run_exp(exp_id, datadir, res_dir, model_name,
     device = init_torch_device()
     target_var_dict={'geopotential': 500, 'temperature': 850}
 
+    fetch_commit = subprocess.Popen(['git', 'rev-parse', 'HEAD'], shell=False, stdout=subprocess.PIPE)
+    commit_id = fetch_commit.communicate()[0].strip().decode("utf-8")
+    fetch_commit.kill()
+    
     # load data
     dg_train, dg_validation, dg_test = load_data(
         var_dict=var_dict, lead_time=lead_time,
         train_years=(train_years[0], train_years[1]), 
         validation_years=(validation_years[0], validation_years[1]), 
         test_years=(test_years[0], test_years[1]),
-        target_var_dict=target_var_dict, datadir=datadir, res_dir=res_dir
+        target_var_dict=target_var_dict, datadir=datadir, 
+        mmap_mode=mmap_mode, past_times=past_times
     )
+
+    def collate_fn(batch):
+        return collate_fn_memmap(batch, dg_train)
+
     validation_loader = torch.utils.data.DataLoader(
-        dg_validation, batch_size=batch_size, drop_last=False
+        dg_validation, batch_size=batch_size, collate_fn=collate_fn, drop_last=False,
+        num_workers=0 #int(train_years[1]) - int(train_years[0]) + 1
     )
     train_loader = torch.utils.data.DataLoader(
-        dg_train, batch_size=batch_size, drop_last=True
+        dg_train, batch_size=batch_size, collate_fn=collate_fn, drop_last=True,
+        num_workers=0 #int(train_years[1]) - int(train_years[0]) + 1
     )
-    n_channels = len(dg_train.data.level.level)
+
+    n_channels = len(dg_train._var_idx) * len(dg_train.past_times)
     print('n_channels', n_channels)
     model_fn = f'{exp_id}_{n_channels}D_fc{model_name}_{lead_time}h.pt'
     print('model filename', model_fn)
@@ -51,39 +65,36 @@ def run_exp(exp_id, datadir, res_dir, model_name,
 
 
     ## train model
+    save_dir = res_dir + 'models/' + exp_id + '/'
     if only_eval:
-        print('loading model form disk')
-        model.load_state_dict(torch.load(res_dir + model_fn, map_location=torch.device(device)))
+        print('loading model from disk')
+        model.load_state_dict(torch.load(save_dir + model_fn, map_location=torch.device(device)))
     else: # actually train
 
-        save_dir = res_dir + 'models/' + exp_id + '/'
         mkdir_p(save_dir)
         print('saving model state_dict to ' + save_dir + model_fn)
+        open(save_dir + commit_id + '.txt', 'w')
 
-        import subprocess
-        commit_id = subprocess.Popen(['git', 'rev-parse', 'HEAD'], shell=False, stdout=subprocess.PIPE)
-        open(save_dir + commit_id.communicate()[0].strip().decode("utf-8") + '.txt', 'w')
-
-        loss_fun = loss_function(loss_fun)
+        loss_fun = loss_function(loss_fun, extra_args={'lat': np.load(datadir+'5_625deg_lat_values.npy')})
         training_outputs = train_model(
             model, train_loader, validation_loader, device, model_forward, loss_fun=loss_fun,
             weight_decay=weight_decay, max_epochs=max_epochs, max_patience=max_patience, 
             lr=lr, lr_min=lr_min, lr_decay=lr_decay, max_lr_patience=max_lr_patience,
             eval_every=eval_every, verbose=True, save_dir=save_dir + model_fn
         )
-        print('saving full model to' + save_dir+model_fn[:-3] + '_full_model.pt')
+        print('saving full model to ' + save_dir+model_fn[:-3] + '_full_model.pt')
         torch.save(model, save_dir+model_fn[:-3] + '_full_model.pt')
-        print('saving training outputs to ' + save_dir + '_training_outputs.npy')
+        print('saving training outputs to ' + save_dir +  '_training_outputs.npy')
         np.save(save_dir + '_training_outputs', training_outputs)
 
 
     # evaluate model
     preds = create_predictions(model, dg_test, var_dict={'z' : None, 't' : None}, device=device,
-                               batch_size=100, model_forward=model_forward, verbose=True)
+                               batch_size=100, model_forward=model_forward, verbose=True)    
     z500_test = load_test_data(f'{datadir}geopotential_500/', 'z')
     t850_test = load_test_data(f'{datadir}temperature_850/', 't')
-    rmse_z = compute_weighted_rmse(preds.z, z500_test.isel(time=slice(lead_time, None))).load()
-    rmse_t = compute_weighted_rmse(preds.t, t850_test.isel(time=slice(lead_time, None))).load()
+    rmse_z = compute_weighted_rmse(preds.z, z500_test.isel(time=slice(lead_time+dg_test.max_input_lag, None))).load()
+    rmse_t = compute_weighted_rmse(preds.t, t850_test.isel(time=slice(lead_time+dg_test.max_input_lag, None))).load()
     print('RMSE z', rmse_z.values); print('RMSE t', rmse_t.values)
 
     print('saving RMSE results to ' + save_dir + model_fn[:-3] + '_RMSE_zt.npy')
@@ -95,6 +106,7 @@ def setup(conf_exp=None):
     p.add_argument('--exp_id', type=str, required=True, help='experiment id')
     p.add_argument('--datadir', type=str, required=True, help='path to data')
     p.add_argument('--res_dir', type=str, required=True, help='path to results')
+    p.add_argument('--mmap_mode', type=str, default='r', help='memmap data read mode')    
     p.add_argument('--only_eval', type=bool, default=False, help='if to evaulate saved model (=False for training)')
 
     p.add_argument('--lead_time', type=int, required=True, help='forecast lead time')
@@ -104,6 +116,7 @@ def setup(conf_exp=None):
     
     p.add_argument('--var_dict', required=True, help='dictionary of fields to use for prediction')
     #p.add_argument('--target_var_dict', help='dictionary of fields to predict')
+    p.add_argument('--past_times', type=int, nargs='+', default=[], help='additional time points as input')
     
     p.add_argument('--loss_fun', type=str, default='mse', help='loss function for model training')
     p.add_argument('--batch_size', type=int, default=64, help='batch-size')

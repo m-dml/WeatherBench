@@ -5,22 +5,26 @@ import torch.nn.functional as F
 from copy import deepcopy
 
 
-def loss_function(loss_fun):
+def loss_function(loss_fun, extra_args={}):
     if loss_fun == 'mse':
         return F.mse_loss
-    else:
-        raise NotImplementedError()
-    """
+
     elif loss_fun == 'lat_mse':
         # Copied from weatherbench fork of S. Rasp: 
-        weights_lat = np.cos(np.deg2rad(lat)).values
+        weights_lat = np.cos(np.deg2rad(extra_args['lat']))
         weights_lat /= weights_lat.mean()
-        def lat_mse(y_true, y_pred):
-            error = y_true - y_pred
-            lat_mse = (error)**2 * weights_lat[None, : , None, None]
-            return mse
-        return lat_lat_mse
-    """
+        weights_lat = torch.tensor(weights_lat, requires_grad=False)
+
+        def weighted_mse(in1, in2):
+            error = in1 - in2
+            weighted_mse = (error)**2 * weights_lat[None, None , :, None]
+            weighted_mse = torch.sum(weighted_mse) / in1.shape[0]            
+            return weighted_mse
+
+        return weighted_mse
+
+    else:
+        raise NotImplementedError()
 
 
 def calc_val_loss(validation_loader, model_forward, device, loss_fun=F.mse_loss):
