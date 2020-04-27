@@ -1,9 +1,5 @@
 import numpy as np
 import torch
-import torchvision
-from .resnet import FCNResNet, CircBlock
-from .cnn import SimpleCNN
-from .unet import CircUNet
 from .Dataset import Dataset_memmap, Dataset_xr
 import xarray as xr
 
@@ -21,7 +17,8 @@ def init_torch_device():
 
 
 def load_data(var_dict, lead_time, train_years, validation_years, test_years, 
-              target_var_dict, datadir, mmap_mode, past_times=[], verbose=False): 
+              target_var_dict, datadir, mmap_mode, past_times=[], past_times_own_axis=False,
+              verbose=False): 
 
     filedir = datadir + '5_625deg_all_zscored.npy'
     leveldir = datadir + '5_625deg_all_level_names.npy'
@@ -47,27 +44,32 @@ def load_data(var_dict, lead_time, train_years, validation_years, test_years,
                               var_dict=var_dict, lead_time=lead_time,
                               start=start, end=end, randomize_order=True,
                               target_var_dict=target_var_dict, mmap_mode=mmap_mode,
-                              dtype=np.float32, past_times=past_times, verbose=verbose)
+                              dtype=np.float32, past_times=past_times, 
+                              past_times_own_axis=past_times_own_axis, verbose=verbose)
 
     start, end = get_year_idx(validation_years)
     dg_validation = Dataset_memmap(filedir=dg_train.data, leveldir=dg_train.level_names, 
                               var_dict=var_dict, lead_time=lead_time,
                               start=start, end=end, randomize_order=False,
                               target_var_dict=target_var_dict, mmap_mode=mmap_mode,
-                              dtype=np.float32, past_times=past_times, verbose=verbose)
+                              dtype=np.float32, past_times=past_times, 
+                              past_times_own_axis=past_times_own_axis, verbose=verbose)
 
     start, end = get_year_idx(test_years)
     dg_test = Dataset_memmap(filedir=dg_train.data, leveldir=dg_train.level_names, 
                               var_dict=var_dict, lead_time=lead_time,
                               start=start, end=end, randomize_order=False,
                               target_var_dict=target_var_dict, mmap_mode=mmap_mode,
-                              dtype=np.float32, past_times=past_times, verbose=verbose)
+                              dtype=np.float32, past_times=past_times, 
+                              past_times_own_axis=past_times_own_axis, verbose=verbose)
 
     return dg_train, dg_validation, dg_test
 
 
 def named_network(model_name, n_input_channels, n_output_channels, **kwargs):
     if model_name == 'cnnbn':
+
+        from .cnn import SimpleCNN
 
         model = SimpleCNN(filters=[64, 64, 64, 64, n_output_channels],  # last '2' for Z500, T850
                           kernels=[5, 5, 5, 5, 5],
@@ -79,6 +81,8 @@ def named_network(model_name, n_input_channels, n_output_channels, **kwargs):
             return model.forward(input)
 
     elif model_name == 'Unetbn':
+
+        from .unet import CircUNet
 
         model = CircUNet(in_channels=n_input_channels,
                          filters=[[32], [32], [32], [32]],
@@ -93,6 +97,8 @@ def named_network(model_name, n_input_channels, n_output_channels, **kwargs):
 
     elif model_name == 'tvfcnResnet50':
 
+        import torchvision
+        
         k = 3
 
         model = torchvision.models.segmentation.fcn_resnet50(pretrained=False)
@@ -113,6 +119,8 @@ def named_network(model_name, n_input_channels, n_output_channels, **kwargs):
 
     elif model_name == 'simpleResnet':
 
+        from .resnet import FCNResNet, CircBlock
+
         """
         from src.pytorch.resnet import FCNResNet
         from torchvision.models.resnet import Bottleneck
@@ -132,6 +140,18 @@ def named_network(model_name, n_input_channels, n_output_channels, **kwargs):
                           padding_mode='circular',
                           **kwargs
                           )
+
+        def model_forward(input):
+            return model.forward(input)
+
+    elif model_name == 'ConvLSTM':
+        
+        from .convlstm import CircConvLSTM
+
+        assert kwargs['hidden_dim'][-1] == n_output_channels, 'final hidden dim is overall output dim of network!'
+        model = CircConvLSTM(input_dim=n_input_channels,
+                             padding_mode='circular',
+                             **kwargs)
 
         def model_forward(input):
             return model.forward(input)

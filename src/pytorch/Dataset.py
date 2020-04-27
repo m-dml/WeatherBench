@@ -49,12 +49,14 @@ class BaseDataset(torch.utils.data.IterableDataset):
     def __init__(self, ds, var_dict, lead_time, mean=None, std=None, load=False,
                  start=None, end=None, normalize=False, norm_subsample=1, randomize_order=True,
                  target_var_dict={'geopotential' : 500, 'temperature' : 850},
-                 dtype=np.float32, res_dir=None, train_years=None, past_times=[], verbose=False):
+                 dtype=np.float32, res_dir=None, train_years=None, 
+                 past_times=[], past_times_own_axis=False, verbose=False):
 
         self.ds = ds
         self.var_dict = var_dict
         self.lead_time = lead_time
         self.past_times = past_times
+        self.past_times_own_axis = past_times_own_axis
         self.normalize = normalize
         self.randomize_order = randomize_order
         self.verbose = verbose
@@ -177,7 +179,10 @@ class Dataset_xr(BaseDataset):
             Xl = [X]
             for l in self.past_times:
                 Xl.append(self.data.isel(time=idx+l).values)
-            X = np.concatenate(Xl, axis=1) if len (idx) > 1 else np.concatenate(Xl, axis=0)         
+            if self.past_times_own_axis:
+                X = np.stack(Xl, axis=1) if len (idx) > 1 else np.concatenate(Xl, axis=0)
+            else:
+                X = np.concatenate(Xl, axis=1) if len (idx) > 1 else np.concatenate(Xl, axis=0)
         y = self.data.isel(time=idx + self.lead_time, level=self._target_idx).values
         return X, y
 
@@ -196,7 +201,10 @@ class Dataset_xr(BaseDataset):
             Xl = [X]
             for l in self.past_times:
                 Xl.append(self.data.isel(time=idx+l).values)
-            X = np.concatenate(Xl, axis=1) # stack past time points along channel dimension
+            if self.past_times_own_axis:
+                X = np.stack(Xl, axis=1) # create new axis after minibatch axis, before channel axis
+            else:
+                X = np.concatenate(Xl, axis=1) # stack past time points along channel dimension
 
         return zip(X, y)
 
@@ -230,7 +238,10 @@ class Dataset_dask(BaseDataset):
             Xl = [X]
             for l in self.past_times:
                 Xl.append(self.data.data[idx+l,:,:,:])
-            X = dask.array.concatenate(Xl, axis=1) if len (idx) > 1 else dask.array.concatenate(Xl, axis=0)
+            if self.past_times_own_axis:
+                X = dask.array.stack(Xl, axis=1) if len (idx) > 1 else dask.array.stack(Xl, axis=0)
+            else:
+                X = dask.array.concatenate(Xl, axis=1) if len (idx) > 1 else dask.array.concatenate(Xl, axis=0)
 
         return X, y
 
@@ -249,7 +260,10 @@ class Dataset_dask(BaseDataset):
             Xl = [X]
             for l in self.past_times:
                 Xl.append(self.data.data[idx+l,:,:,:])
-            X = dask.array.concatenate(Xl, axis=1) if len (idx) > 1 else dask.array.concatenate(Xl, axis=0)
+            if self.past_times_own_axis:
+                X = dask.array.stack(Xl, axis=1) if len (idx) > 1 else dask.array.stack(Xl, axis=0)
+            else:
+                X = dask.array.concatenate(Xl, axis=1) if len (idx) > 1 else dask.array.concatenate(Xl, axis=0)
 
         return zip(X,y)
 
@@ -259,7 +273,8 @@ class Dataset_dask_thinning(BaseDataset):
     def __init__(self, ds, var_dict, lead_time, mean=None, std=None, load=False,
                  start=None, end=None, normalize=False, norm_subsample=1, randomize_order=True,
                  target_var_dict={'geopotential' : 500, 'temperature' : 850}, thinning=1,
-                 dtype=np.float32, res_dir=None, train_years=None, past_times=[], verbose=False):
+                 dtype=np.float32, res_dir=None, train_years=None, 
+                 past_times=[], past_times_own_axis=False, verbose=False):
         
     
         super().__init__(ds=ds, var_dict=var_dict, lead_time=lead_time, 
@@ -267,7 +282,8 @@ class Dataset_dask_thinning(BaseDataset):
                          normalize=normalize, norm_subsample=norm_subsample, 
                          randomize_order=randomize_order, target_var_dict=target_var_dict,
                          dtype=dtype, res_dir=res_dir, train_years=train_years, 
-                         past_times=past_times, verbose=verbose)
+                         past_times=past_times, past_times_own_axis=past_times_own_axis, 
+                         verbose=verbose)
         
         self.thinning = thinning
         self.ith = 0
@@ -300,7 +316,10 @@ class Dataset_dask_thinning(BaseDataset):
             Xl = [X]
             for l in self.past_times:
                 Xl.append(self.data.data[idx+l,:,:,:])
-            X = dask.array.concatenate(Xl, axis=1) if len (idx) > 1 else dask.array.concatenate(Xl, axis=0)
+            if self.past_times_own_axis:
+                X = dask.array.stack(Xl, axis=1) if len (idx) > 1 else dask.array.stack(Xl, axis=0)
+            else:
+                X = dask.array.concatenate(Xl, axis=1) if len (idx) > 1 else dask.array.concatenate(Xl, axis=0)
 
         return X, y
 
@@ -331,16 +350,23 @@ class Dataset_dask_thinning(BaseDataset):
             Xl = [X]
             for l in self.past_times:
                 Xl.append(self.data.data[idx+l,:,:,:])
-            X = dask.array.concatenate(Xl, axis=1) if len (idx) > 1 else dask.array.concatenate(Xl, axis=0)
+            if self.past_times_own_axis:
+                X = dask.array.stack(Xl, axis=1) if len (idx) > 1 else dask.array.stack(Xl, axis=0)
+            else:
+                X = dask.array.concatenate(Xl, axis=1) if len (idx) > 1 else dask.array.concatenate(Xl, axis=0)
 
         return zip(X.compute(),y.compute())
 
     
-def collate_fn_memmap(batch, dg):
+def collate_fn_memmap(batch, dg, past_times_own_axis=False):
     # batch here is just a list of indices
     X = dg.data[(batch + dg._past_idx).flatten().reshape(-1,1), dg._var_idx, :, :]
-    X = X.reshape((len(batch), -1, *X.shape[2:]))
-    # find time point t, time-offset d and field index i as X[t,(2-d)*n_fields+i,:,:]
+    if past_times_own_axis:
+        # find time point t, time-offset d and field index i as X[t,d,i,:,:]
+        X = X.reshape((len(dg._past_idx), len(batch),  len(dg._var_idx), *X.shape[2:])).transpose(1,0,2,3,4)
+    else:
+        # find time point t, time-offset d and field index i as X[t,(d_max-d)*n_fields+i,:,:]
+        X = X.reshape((len(batch), -1, *X.shape[2:]))
     y = dg.data[np.array(batch).reshape(-1,1) + dg.lead_time, dg._target_idx, :, :]
     return (torch.as_tensor(X, device='cpu'), torch.as_tensor(y, device='cpu'))
 
@@ -350,7 +376,7 @@ class Dataset_memmap(BaseDataset):
     def __init__(self, filedir, leveldir, var_dict, lead_time, mean=None, std=None, load=False,
                  start=None, end=None, randomize_order=True,
                  target_var_dict={'geopotential' : 500, 'temperature' : 850}, 
-                 dtype=np.float32, past_times=[], mmap_mode='r', verbose=False):
+                 dtype=np.float32, past_times=[], past_times_own_axis=False, mmap_mode='r', verbose=False):
 
         self.data = data = filedir if isinstance(filedir, np.ndarray) else np.load(filedir, mmap_mode=mmap_mode)
         self.level_names = leveldir if isinstance(leveldir, np.ndarray) else np.load(leveldir)
@@ -375,6 +401,7 @@ class Dataset_memmap(BaseDataset):
         self.randomize_order = randomize_order
         
         self.past_times = past_times if 0 in past_times else [0] + past_times
+        self.past_times_own_axis = past_times_own_axis
         self._past_idx = np.sort(np.asarray(self.past_times)).reshape(-1,1)
         self.lead_time = lead_time
         
