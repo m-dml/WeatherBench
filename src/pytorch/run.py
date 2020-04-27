@@ -17,7 +17,7 @@ def mkdir_p(dir):
 
 def run_exp(exp_id, datadir, res_dir, mmap_mode, model_name, 
             lead_time, test_years, train_years, validation_years,
-            loss_fun, var_dict, past_times,
+            loss_fun, var_dict, past_times, past_times_own_axis,
             kernel_sizes, filters, weight_decay, dropout_rate,
             batch_size, max_epochs, eval_every, max_patience,
             lr, lr_min, lr_decay, max_lr_patience, only_eval):
@@ -28,7 +28,7 @@ def run_exp(exp_id, datadir, res_dir, mmap_mode, model_name,
     fetch_commit = subprocess.Popen(['git', 'rev-parse', 'HEAD'], shell=False, stdout=subprocess.PIPE)
     commit_id = fetch_commit.communicate()[0].strip().decode("utf-8")
     fetch_commit.kill()
-    
+
     # load data
     dg_train, dg_validation, dg_test = load_data(
         var_dict=var_dict, lead_time=lead_time,
@@ -36,11 +36,11 @@ def run_exp(exp_id, datadir, res_dir, mmap_mode, model_name,
         validation_years=(validation_years[0], validation_years[1]), 
         test_years=(test_years[0], test_years[1]),
         target_var_dict=target_var_dict, datadir=datadir, 
-        mmap_mode=mmap_mode, past_times=past_times
+        mmap_mode=mmap_mode, past_times=past_times, past_times_own_axis=past_times_own_axis
     )
 
     def collate_fn(batch):
-        return collate_fn_memmap(batch, dg_train)
+        return collate_fn_memmap(batch, dg_train, past_times_own_axis=past_times_own_axis)
 
     validation_loader = torch.utils.data.DataLoader(
         dg_validation, batch_size=batch_size, collate_fn=collate_fn, drop_last=False,
@@ -51,7 +51,7 @@ def run_exp(exp_id, datadir, res_dir, mmap_mode, model_name,
         num_workers=0 #int(train_years[1]) - int(train_years[0]) + 1
     )
 
-    n_channels = len(dg_train._var_idx) * len(dg_train.past_times)
+    n_channels = len(dg_train._var_idx) if past_times_own_axis else len(dg_train._var_idx) * len(dg_train.past_times)
     print('n_channels', n_channels)
     model_fn = f'{exp_id}_{n_channels}D_fc{model_name}_{lead_time}h.pt'
     print('model filename', model_fn)
@@ -117,6 +117,8 @@ def setup(conf_exp=None):
     p.add_argument('--var_dict', required=True, help='dictionary of fields to use for prediction')
     #p.add_argument('--target_var_dict', help='dictionary of fields to predict')
     p.add_argument('--past_times', type=int, nargs='+', default=[], help='additional time points as input')
+    p.add_argument('--past_times_own_axis', type=bool, default=False, help='if additional input times are on own axis')
+    
     
     p.add_argument('--loss_fun', type=str, default='mse', help='loss function for model training')
     p.add_argument('--batch_size', type=int, default=64, help='batch-size')

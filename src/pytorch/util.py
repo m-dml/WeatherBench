@@ -148,13 +148,20 @@ def named_network(model_name, n_input_channels, n_output_channels, **kwargs):
         
         from .convlstm import CircConvLSTM
 
+        kwargs['num_layers'] = len(kwargs['kernel_sizes'])
+        kwargs['kernel_size'] = [(i,i) for i in kwargs['kernel_sizes']]
+        kwargs['hidden_dim'] = kwargs['filters']
+        
         assert kwargs['hidden_dim'][-1] == n_output_channels, 'final hidden dim is overall output dim of network!'
+        
         model = CircConvLSTM(input_dim=n_input_channels,
-                             padding_mode='circular',
-                             **kwargs)
+                             padding_mode='circular',                             
+                             **kwargs
+                            )
 
         def model_forward(input):
-            return model.forward(input)
+            _, last_states = model.forward(input)
+            return last_states[-1][0] # [0] for final hidden state h, [1] for final memory state c
 
     else:
         raise NotImplementedError()
