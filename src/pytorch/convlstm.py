@@ -57,7 +57,7 @@ class CircConvLSTM(ConvLSTM):
     We here use CircConvLSTM cells that allow circular 2D convolutions.
     """
     def __init__(self, input_dim, hidden_dim, kernel_size, num_layers,
-                 batch_first=False, bias=True, return_all_layers=False, padding_mode=None):
+                 batch_first=True, bias=True, return_all_layers=False, padding_mode=None):
         super(ConvLSTM, self).__init__()
 
         self._check_kernel_size_consistency(kernel_size)
