@@ -4,6 +4,7 @@ res_dir: /gpfs/work/nonnenma/results/forecast_predictability/weatherbench/5_625d
 mmap_mode: None
 lead_time: 72
 past_times: [-3, -6, -9, -12, -15, -18, -21, -24, -27, -30, -33, -36]
+past_times_own_axis: True
 model_name: ConvLSTM
 batch_size: 32
 test_years: [2017, 2018]

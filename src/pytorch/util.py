@@ -148,9 +148,14 @@ def named_network(model_name, n_input_channels, n_output_channels, **kwargs):
         
         from .convlstm import CircConvLSTM
 
-        kwargs['num_layers'] = len(kwargs['kernel_sizes'])
-        kwargs['kernel_size'] = [(i,i) for i in kwargs['kernel_sizes']]
-        kwargs['hidden_dim'] = kwargs['filters']
+        num_layers = len(kwargs['kernel_sizes'])
+        kernel_size = [(i,i) for i in kwargs['kernel_sizes']]
+        hidden_dim = kwargs['filters']
+        kwargs = { # note we're overwriting the kwargs argument !
+            'num_layers' : num_layers,
+            'kernel_size' : kernel_size,
+            'hidden_dim' : hidden_dim
+        }
         
         assert kwargs['hidden_dim'][-1] == n_output_channels, 'final hidden dim is overall output dim of network!'
         

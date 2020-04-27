@@ -61,7 +61,10 @@ def run_exp(exp_id, datadir, res_dir, mmap_mode, model_name,
     model, model_forward = named_network(model_name, n_channels, len(target_var_dict), 
                                          kernel_sizes=kernel_sizes, filters=filters, dropout_rate=dropout_rate)
     print('total #parameters: ', np.sum([np.prod(item.shape) for item in model.state_dict().values()]))
-    print('output shape: ', model_forward(torch.zeros((7,n_channels,32,64))).shape)
+    if past_times_own_axis:
+        print('output shape: ', model_forward(torch.zeros((7,len(past_times)+1,n_channels,32,64))).shape)        
+    else:
+        print('output shape: ', model_forward(torch.zeros((7,n_channels,32,64))).shape)
 
 
     ## train model
