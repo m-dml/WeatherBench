@@ -33,6 +33,12 @@ def load_data(var_dict, lead_time, train_years, validation_years, test_years,
      for var in var_dict.keys()],
     fill_value=0  # For the 'tisr' NaNs
     )
+    dg_meta = { # meta information on axes for re-construction of xarrays later on
+       'lat' : x.lat,
+       'lon' : x.lon,
+       'time' : x.time,
+       'level' : x.level
+    }
 
     def get_year_idx(yrs):
         idx = [np.sum(x.chunks['time'][:(int(yr)-1979+i)]) for i,yr in enumerate(yrs)]
@@ -63,7 +69,7 @@ def load_data(var_dict, lead_time, train_years, validation_years, test_years,
                               dtype=np.float32, past_times=past_times, 
                               past_times_own_axis=past_times_own_axis, verbose=verbose)
 
-    return dg_train, dg_validation, dg_test
+    return dg_train, dg_validation, dg_test, dg_meta
 
 
 def named_network(model_name, n_input_channels, n_output_channels, **kwargs):

@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 from src.pytorch.util import init_torch_device, load_data, named_network
-from src.pytorch.Dataset import collate_fn_memmap
+from src.pytorch.Dataset import collate_fn_memmap, load_mean_std
 from src.pytorch.train import train_model, loss_function
 from src.pytorch.train_nn import create_predictions
 from src.score import compute_weighted_rmse, load_test_data
@@ -24,13 +24,14 @@ def run_exp(exp_id, datadir, res_dir, mmap_mode, model_name,
 
     device = init_torch_device()
     target_var_dict={'geopotential': 500, 'temperature': 850}
+    mean, std, _, _ = load_mean_std(res_dir, {'geopotential': ['z', [500]], 'temperature': ['t', [850]]}, train_years)   
 
     fetch_commit = subprocess.Popen(['git', 'rev-parse', 'HEAD'], shell=False, stdout=subprocess.PIPE)
     commit_id = fetch_commit.communicate()[0].strip().decode("utf-8")
     fetch_commit.kill()
 
     # load data
-    dg_train, dg_validation, dg_test = load_data(
+    dg_train, dg_validation, dg_test, dg_meta = load_data(
         var_dict=var_dict, lead_time=lead_time,
         train_years=(train_years[0], train_years[1]), 
         validation_years=(validation_years[0], validation_years[1]), 
@@ -92,8 +93,11 @@ def run_exp(exp_id, datadir, res_dir, mmap_mode, model_name,
 
 
     # evaluate model
+    valid_test_time = dg_meta['time'].sel(time=slice(test_years[0], test_years[1]))
+    dg_meta['valid_time'] = valid_test_time.isel(time=slice(dg_test.lead_time+dg_test.max_input_lag, None)).time
     preds = create_predictions(model, dg_test, var_dict={'z' : None, 't' : None}, device=device,
-                               batch_size=100, model_forward=model_forward, verbose=True)    
+                               batch_size=100, model_forward=model_forward, mean=mean, std=std,
+                               past_times_own_axis=past_times_own_axis, verbose=True, dg_meta=dg_meta)
     z500_test = load_test_data(f'{datadir}geopotential_500/', 'z')
     t850_test = load_test_data(f'{datadir}temperature_850/', 't')
     rmse_z = compute_weighted_rmse(preds.z, z500_test.isel(time=slice(lead_time+dg_test.max_input_lag, None))).load()
