@@ -427,7 +427,11 @@ class Dataset_memmap(BaseDataset):
         assert idx.ndim == 1
 
         X = self.data[(idx + self._past_idx).flatten().reshape(-1,1), self._var_idx, :, :]
-        X = X.reshape((len(idx), -1, *X.shape[2:]))
+        if self.past_times_own_axis:
+            # find time point t, time-offset d and field index i as X[t,d,i,:,:]
+            X = X.reshape((len(self._past_idx), len(idx), len(self._var_idx), *X.shape[2:])).transpose(1,0,2,3,4)
+        else:
+            X = X.reshape((len(idx), -1, *X.shape[2:]))
         # find time point t, time-offset d and field index i as X[t,(2-d)*n_fields+i,:,:]
         y = self.data[idx.reshape(-1,1) + self.lead_time, self._target_idx, :, :]
 
