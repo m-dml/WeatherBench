@@ -86,6 +86,8 @@ def named_network(model_name, n_input_channels, n_output_channels, **kwargs):
         def model_forward(input):
             return model.forward(input)
 
+        past_times_own_axis = False
+
     elif model_name == 'Unetbn':
 
         from .unet import CircUNet
@@ -100,6 +102,8 @@ def named_network(model_name, n_input_channels, n_output_channels, **kwargs):
 
         def model_forward(input):
             return model.forward(input)
+
+        past_times_own_axis = False
 
     elif model_name == 'tvfcnResnet50':
 
@@ -122,6 +126,8 @@ def named_network(model_name, n_input_channels, n_output_channels, **kwargs):
 
         def model_forward(input):
             return model.forward(input)['out']  # because reasons...
+
+        past_times_own_axis = False
 
     elif model_name == 'simpleResnet':
 
@@ -150,6 +156,8 @@ def named_network(model_name, n_input_channels, n_output_channels, **kwargs):
         def model_forward(input):
             return model.forward(input)
 
+        past_times_own_axis = False
+
     elif model_name == 'ConvLSTM':
         
         from .convlstm import CircConvLSTM
@@ -174,7 +182,9 @@ def named_network(model_name, n_input_channels, n_output_channels, **kwargs):
             _, last_states = model.forward(input)
             return last_states[-1][0] # [0] for final hidden state h, [1] for final memory state c
 
+        past_times_own_axis = True
+
     else:
         raise NotImplementedError()
 
-    return model, model_forward
+    return model, model_forward, past_times_own_axis
