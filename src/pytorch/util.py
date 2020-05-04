@@ -208,8 +208,8 @@ def named_network(model_name, n_input_channels, n_output_channels, **kwargs):
 
         def model_forward(input):
             batch_shape = input.shape
-            out =  model.forward(input.reshape((-1, *input.shape[2:])))
-            return out.reshape(*batch_shape[:2], -1, *batch_shape[3:])
+            out =  model.forward(input.reshape((input.shape[0], -1, *input.shape[3:])))
+            return out.reshape(batch_shape[0], -1, *batch_shape[3:])
 
         past_times_own_axis = True
 

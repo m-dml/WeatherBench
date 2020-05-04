@@ -5,9 +5,9 @@ from src.pytorch.util import named_network
 
 device = init_torch_device()
 
-n_channels = 23
+n_channels = 299
 dropout_rate = 0.
-filters=[23, 23, 23, 23, 23, 23]
+filters=[299, 299, 299, 299, 299, 299]
 kernel_sizes=[3, 3, 3, 3, 3, 3]
 
 model_name = 'ConvTransformer'
