@@ -27,16 +27,24 @@ class ConvMHSA(torch.nn.Module):
         Initialize ConvSALayer layer.
         Parameters
         ----------
-        input_dim: int
+        D_in: int
             Number of channels of input tensor.
-        output_dim: int
+        D_out: int
             Number of channels of output tensor.
+        N_h: int
+            Number of attention heads.        
+        D_h: int
+            Number of output channels per attention head.
+        D_k: int
+            Number of channels for convolved query and key gates.
         kernel_size: (int, int)
             Size of the convolutional kernel.
         bias: bool
             Whether or not to add the bias.
         padding_mode: str
             How to pad the data ('circular' for wrap-around padding on last axis)
+        dropout: float
+            Dropout rate.
         """
 
         super(ConvMHSA, self).__init__()
@@ -120,22 +128,22 @@ class ConvTransformerEncoderLayer(torch.nn.Module):
         >>> out = encoder_layer(src)
     """
 
-    def __init__(self, in_channels, attention_channels, hidden_channels, out_channels,
+    def __init__(self, in_channels, D_out, hidden_channels, out_channels,
                  kernel_size, N_h, D_h, D_k, attention_kernel_size,
                  bias=True, attention_bias=True, LayerNorm=torch.nn.LayerNorm,
                  padding_mode='circular', dropout=0.1, activation="relu"):
 
         super(ConvTransformerEncoderLayer, self).__init__()
 
-        assert in_channels == attention_channels, 'no up/down-sampling implemented yet'
-        assert attention_channels == out_channels, 'no up/down-sampling implemented yet'
-        self.self_attn = ConvMHSA(D_in=in_channels, D_out=attention_channels, 
+        assert in_channels == D_out, 'no up/down-sampling implemented yet'
+        assert D_out == out_channels, 'no up/down-sampling implemented yet'
+        self.self_attn = ConvMHSA(D_in=in_channels, D_out=D_out, 
                                   N_h=N_h, D_h=D_h, D_k=D_k,
                                   kernel_size=attention_kernel_size, bias=attention_bias, 
                                   padding_mode=padding_mode, dropout=dropout)
                     
         # Implementation of Feedforward model
-        self.conv1 = setup_conv(in_channels=attention_channels, 
+        self.conv1 = setup_conv(in_channels=D_out, 
                                   out_channels=hidden_channels, 
                                   kernel_size=kernel_size, 
                                   padding=(kernel_size[0] // 2, kernel_size[1] // 2), 
@@ -186,3 +194,87 @@ class ConvTransformerEncoderLayer(torch.nn.Module):
         src = src + self.dropout2(src2)
         #src = self.norm2(src)
         return src
+
+
+class ConvTransformer(torch.nn.Module):
+    """ Simple fully convolutional ResNet with variable number of blocks and layers
+    """
+    def __init__(self,
+                 in_channels,
+                 out_channels,
+                 filters,
+                 kernel_sizes, 
+                 N_h,
+                 D_h,
+                 D_k,
+                 D_out=None, 
+                 sa_kernel_sizes=None,
+                 bias=True, 
+                 attention_bias=True, 
+                 LayerNorm=torch.nn.LayerNorm,
+                 padding_mode='circular', 
+                 dropout=0.1, 
+                 activation="relu"):
+        """
+        Initialize ConvSALayer layer.
+        Parameters
+        ----------
+        in_channels: int
+            Number of channels of input tensor.
+        D_out: int
+            Number of channels of output tensor of self-attention.
+        filters: int
+            Number of channels of output tensor of convolutions.
+        N_h: int
+            Number of attention heads.        
+        D_h: int
+            Number of output channels per attention head.
+        D_k: int
+            Number of channels for convolved query and key gates.
+        kernel_size: (int, int)
+            Size of the convolutional kernel.
+        bias: bool
+            Whether or not to add the bias.
+        padding_mode: str
+            How to pad the data ('circular' for wrap-around padding on last axis)
+        dropout: float
+            Dropout rate.
+        """
+        super(ConvTransformer, self).__init__()
+    
+        sa_kernel_sizes = kernel_sizes if sa_kernel_sizes is None else sa_kernel_sizes
+        D_out = filters if D_out is None else D_out
+        assert len(filters) == len(kernel_sizes)
+
+        layers = []
+        for sa_kernel_size, kernel_size, n_filters in zip(sa_kernel_sizes, kernel_sizes, filters):
+            layers.append( ConvTransformerEncoderLayer( in_channels=in_channels, 
+                                                        D_out=n_filters, 
+                                                        hidden_channels=n_filters, 
+                                                        out_channels=n_filters,
+                                                        kernel_size=kernel_size, 
+                                                        N_h=N_h, 
+                                                        D_h=D_h, 
+                                                        D_k=D_k, 
+                                                        attention_kernel_size=sa_kernel_size,
+                                                        bias=bias, 
+                                                        attention_bias=attention_bias, 
+                                                        LayerNorm=LayerNorm,
+                                                        padding_mode=padding_mode, 
+                                                        dropout=dropout, 
+                                                        activation=activation)
+                          )
+            in_channels = n_filters
+        self.layers = torch.nn.ModuleList(modules=layers)
+
+        self.final = torch.nn.Conv2d(in_channels=in_channels,
+                                     out_channels=out_channels, 
+                                     kernel_size=(1,1), 
+                                     stride=1)
+
+    def forward(self, x):
+
+        for layer in self.layers:
+            x = layer(x)
+
+        return self.final(x)
