@@ -59,7 +59,7 @@ def run_exp(exp_id, datadir, res_dir, mmap_mode, model_name,
 
 
     ## define model
-    model, model_forward = named_network(model_name, n_channels, len(target_var_dict), 
+    model, model_forward, _ = named_network(model_name, n_channels, len(target_var_dict), 
                                          kernel_sizes=kernel_sizes, filters=filters, dropout_rate=dropout_rate)
     print('total #parameters: ', np.sum([np.prod(item.shape) for item in model.state_dict().values()]))
     if past_times_own_axis:
@@ -96,7 +96,7 @@ def run_exp(exp_id, datadir, res_dir, mmap_mode, model_name,
     valid_test_time = dg_meta['time'].sel(time=slice(test_years[0], test_years[1]))
     dg_meta['valid_time'] = valid_test_time.isel(time=slice(dg_test.lead_time+dg_test.max_input_lag, None)).time
     preds = create_predictions(model, dg_test, var_dict={'z' : None, 't' : None}, device=device,
-                               batch_size=100, model_forward=model_forward, mean=mean, std=std,
+                               batch_size=batch_size, model_forward=model_forward, mean=mean, std=std,
                                past_times_own_axis=past_times_own_axis, verbose=True, dg_meta=dg_meta)
     z500_test = load_test_data(f'{datadir}geopotential_500/', 'z')
     t850_test = load_test_data(f'{datadir}temperature_850/', 't')

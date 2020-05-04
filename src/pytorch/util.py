@@ -184,6 +184,35 @@ def named_network(model_name, n_input_channels, n_output_channels, **kwargs):
 
         past_times_own_axis = True
 
+
+    elif model_name == 'ConvTransformer':
+
+        from src.pytorch.transformers import ConvTransformer
+
+        model = ConvTransformer(
+                         in_channels=n_input_channels,
+                         out_channels=n_output_channels,
+                         filters=kwargs['filters'],
+                         kernel_sizes=[(i,i) for i in kwargs['kernel_sizes']], 
+                         N_h=8,
+                         D_h=8,
+                         D_k=16,
+                         D_out=None, 
+                         sa_kernel_sizes=None,
+                         bias=True, 
+                         attention_bias=True, 
+                         LayerNorm=torch.nn.LayerNorm,
+                         padding_mode='circular', 
+                         dropout=0., 
+                         activation="relu")
+
+        def model_forward(input):
+            batch_shape = input.shape
+            out =  model.forward(input.reshape((-1, *input.shape[2:])))
+            return out.reshape(*batch_shape[:2], -1, *batch_shape[3:])
+
+        past_times_own_axis = True
+
     else:
         raise NotImplementedError()
 
