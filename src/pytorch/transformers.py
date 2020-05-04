@@ -277,4 +277,4 @@ class ConvTransformer(torch.nn.Module):
         for layer in self.layers:
             x = layer(x)
 
-        return self.final(x)
+        return self.final(x.contiguous())
