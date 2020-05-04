@@ -207,11 +207,11 @@ def named_network(model_name, n_input_channels, n_output_channels, **kwargs):
                          activation="relu")
 
         def model_forward(input):
-            batch_shape = input.shape
-            out =  model.forward(input.reshape((input.shape[0], -1, *input.shape[3:])))
-            return out.reshape(batch_shape[0], -1, *batch_shape[3:])
-
-        past_times_own_axis = True
+            #batch_shape = input.shape
+            #out =  model.forward(input.reshape((input.shape[0], -1, *input.shape[3:])))
+            #return out.reshape(batch_shape[0], -1, *batch_shape[3:])
+            return model.forward(input)
+        past_times_own_axis = False
 
     else:
         raise NotImplementedError()
