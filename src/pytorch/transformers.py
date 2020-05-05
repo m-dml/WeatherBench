@@ -3,6 +3,10 @@ import torch
 from src.pytorch.layers import PeriodicConv2D
 
 def setup_conv(in_channels, out_channels, kernel_size, padding, bias, padding_mode):
+    """
+    Select between regular and circular 2D convolutional layers.
+    padding_mode='circular' returns a convolution that wraps padding around the final axis.
+    """
     if padding_mode=='circular':
         return PeriodicConv2D(in_channels=in_channels,
                       out_channels=out_channels, 
@@ -19,9 +23,10 @@ def setup_conv(in_channels, out_channels, kernel_size, padding, bias, padding_mo
 
 def tensor5D_conv(conv, x, axis=0):
     """
-    Convenience function to apply 2D convolutions to last two axes of 5D tensor
+    Convenience function to apply 2D convolutions to last two axes of 5D tensor.
+    
     Parameters
-    ----------    
+    ----------
     conv: object
         Convolutional layer.
     x: tensor
@@ -43,7 +48,7 @@ def tensor5D_conv(conv, x, axis=0):
     else:
         raise NotImplementedError
 
-    
+
 class ConvMHSA(torch.nn.Module):
     """
     Implementation of multi-head self-attention with convolutions to compute queries, keys, values 
@@ -51,6 +56,7 @@ class ConvMHSA(torch.nn.Module):
     def __init__(self, D_in, D_out, N_h, D_h, D_k, kernel_size, bias, padding_mode, dropout=0.):
         """
         Initialize ConvSALayer layer.
+        
         Parameters
         ----------
         D_in: int
@@ -139,30 +145,49 @@ class ConvMHSA(torch.nn.Module):
         return out + self.b_out
 
 
-class ConvTransformerEncoderLayer(torch.nn.Module):
-    r"""TransformerEncoderLayer is made up of self-attn and feedforward network.
-    This standard encoder layer is based on the paper "Attention Is All You Need".
-    Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez,
-    Lukasz Kaiser, and Illia Polosukhin. 2017. Attention is all you need. In Advances in
-    Neural Information Processing Systems, pages 6000-6010. Users may modify or implement
-    in a different way during application.
-
-    Args:
-        d_model: the number of expected features in the input (required).
-        nhead: the number of heads in the multiheadattention models (required).
-        dim_feedforward: the dimension of the feedforward network model (default=2048).
-        dropout: the dropout value (default=0.1).
-        activation: the activation function of intermediate layer, relu or gelu (default=relu).
-
-    Examples::
-        >>> encoder_layer = nn.TransformerEncoderLayer(d_model=512, nhead=8)
-        >>> src = torch.rand(10, 32, 512)
-        >>> out = encoder_layer(src)
+class ConvTransformerEncoderBlock(torch.nn.Module):
+    """TransformerEncoderBlock is made up of multi-head self-attention and a feedforward network.
+    The computation of query, key and value of the self-attention, as well as the activations of
+    the feedfoward network are based on 2D convolutions.
+    
+    Currently hard-coded to two convolutional layers for the feedforward network.
+    
+    Parameters
+    ----------
+    in_channels: int
+        Number of channels of input tensor.
+    D_out: int
+        Number of output channels for self-attention value convolution. 
+    hidden_channels: int
+        Number of output channels for first residual convolution. 
+    out_channels: int
+        Number of channels of output tensor (output of second residual convolution).
+    kernel_size: list of (int, int)
+        Size of the convolutional kernel for the residual layers.
+    bias: bool
+        Whether to include bias parameters in the residual-layer convolutions.
+    attention_kernel_size: list of (int, int)
+        Size of the convolutional kernel for the self-attention layer.
+    attention_bias: bool
+        Whether to include bias parameters in the self-attention-layer convolutions.
+    layerNorm: function
+        Normalization layer.
+    activation: str
+        String specifying nonlinearity.
+    N_h: int
+        Number of attention heads.        
+    D_h: int
+        Number of output channels per attention head.
+    D_k: int
+        Number of channels for convolved query and key gates.
+    padding_mode: str
+        How to pad the data ('circular' for wrap-around padding on last axis)
+    dropout: float
+        Dropout rate.        
     """
-
     def __init__(self, in_channels, D_out, hidden_channels, out_channels,
                  kernel_size, N_h, D_h, D_k, attention_kernel_size,
-                 bias=True, attention_bias=True, LayerNorm=torch.nn.LayerNorm,
+                 bias=True, attention_bias=True, layerNorm=torch.nn.LayerNorm,
                  padding_mode='circular', dropout=0.1, activation="relu"):
 
         super(ConvTransformerEncoderLayer, self).__init__()
@@ -189,11 +214,10 @@ class ConvTransformerEncoderLayer(torch.nn.Module):
                                   bias=bias, 
                                   padding_mode=padding_mode)
 
-        #self.norm1 = LayerNorm(d_model)
-        #self.norm2 = LayerNorm(d_model)
+        #self.norm1 = layerNorm(d_model)
+        #self.norm2 = layerNorm(d_model)
         self.dropout1 = torch.nn.Dropout(dropout)
         self.dropout2 = torch.nn.Dropout(dropout)
-
 
         if activation == "relu":
             self.activation =  torch.nn.functional.relu
@@ -202,21 +226,17 @@ class ConvTransformerEncoderLayer(torch.nn.Module):
         else:
             raise RuntimeError("activation should be relu/gelu, not {}".format(activation))        
 
-    def __setstate__(self, state):
-        if 'activation' not in state:
-            state['activation'] = F.relu
-        super(TransformerEncoderLayer, self).__setstate__(state)
-
     def forward(self, x, x_mask=None, x_key_padding_mask=None):
-        r"""Pass the input through the encoder layer.
-
-        Args:
-            x: the sequence to the encoder layer (required).
-            x_mask: the mask for the src sequence (optional).
-            x_key_padding_mask: the mask for the x keys per batch (optional).
-
-        Shape:
-            see the docs in Transformer class.
+        """Pass the input through the encoder layer.
+        
+        Parameters
+        ----------
+        x: tensor
+            The input sequence to the encoder layer.
+        x_mask: tensor 
+            Mask for the input sequence (optional).
+        x_key_padding_mask: tensor 
+            Mask for the x keys per batch (optional).
         """
         x += self.dropout(self.self_attn(x))
         #x = self.norm1(x)
@@ -225,9 +245,10 @@ class ConvTransformerEncoderLayer(torch.nn.Module):
         x += self.dropout2(self.activation(tensor5D_conv(self.conv2, xx)))
         #x = self.norm2(x)
         return x
-    
+
+
 class ConvTransformer(torch.nn.Module):
-    """ Simple fully convolutional ResNet with variable number of blocks and layers
+    """ Simple fully convolutional Transformer network with variable number of blocks.
     """
     def __init__(self,
                  seq_length,
@@ -242,34 +263,49 @@ class ConvTransformer(torch.nn.Module):
                  sa_kernel_sizes=None,
                  bias=True, 
                  attention_bias=True, 
-                 LayerNorm=torch.nn.LayerNorm,
+                 layerNorm=torch.nn.LayerNorm,
                  padding_mode='circular', 
                  dropout=0.1, 
                  activation="relu"):
         """
         Initialize ConvSALayer layer.
+        
         Parameters
         ----------
+        seq_length: int
+            Length of input sequences.
         in_channels: int
             Number of channels of input tensor.
-        D_out: int
+        out_channels: int
             Number of channels of output tensor of self-attention.
-        filters: int
+        filters: list of (int, int)
             Number of channels of output tensor of convolutions.
+        kernel_sizes: list of (int, int)
+            Sizes of the convolutional kernel for the residual layers.
         N_h: int
             Number of attention heads.        
         D_h: int
             Number of output channels per attention head.
         D_k: int
             Number of channels for convolved query and key gates.
-        kernel_size: (int, int)
-            Size of the convolutional kernel.
+        D_out: int
+            Number of output channels for self-attention value convolution. 
+        kernel_sizes: list of (int, int)
+            Sizes of the convolutional kernel for the self-attention layers.
+        bias: bool
+            Whether to include bias parameters in the residual-layer convolutions.
+        attention_bias: bool
+            Whether to include bias parameters in the self-attention-layer convolutions.
+        layerNorm: function
+            Normalization layer.
         bias: bool
             Whether or not to add the bias.
         padding_mode: str
             How to pad the data ('circular' for wrap-around padding on last axis)
         dropout: float
             Dropout rate.
+        activation: str
+            String specifying nonlinearity.
         """
         super(ConvTransformer, self).__init__()
     
@@ -279,7 +315,7 @@ class ConvTransformer(torch.nn.Module):
 
         layers = []
         for sa_kernel_size, kernel_size, n_filters in zip(sa_kernel_sizes, kernel_sizes, filters):
-            layers.append( ConvTransformerEncoderLayer( in_channels=in_channels, 
+            layers.append( ConvTransformerEncoderBlock( in_channels=in_channels, 
                                                         D_out=n_filters, 
                                                         hidden_channels=n_filters, 
                                                         out_channels=n_filters,
@@ -290,7 +326,7 @@ class ConvTransformer(torch.nn.Module):
                                                         attention_kernel_size=sa_kernel_size,
                                                         bias=bias, 
                                                         attention_bias=attention_bias, 
-                                                        LayerNorm=LayerNorm,
+                                                        layerNorm=layerNorm,
                                                         padding_mode=padding_mode, 
                                                         dropout=dropout, 
                                                         activation=activation)
@@ -304,7 +340,13 @@ class ConvTransformer(torch.nn.Module):
                                      stride=1)
 
     def forward(self, x):
-
+        """Pass the input through the network.
+        
+        Parameters
+        ----------
+        x: tensor
+            The input sequence to the encoder layer.
+        """
         for layer in self.layers:
             x = layer(x)
 
