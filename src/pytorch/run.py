@@ -59,7 +59,7 @@ def run_exp(exp_id, datadir, res_dir, mmap_mode, model_name,
 
 
     ## define model
-    model, model_forward, _ = named_network(model_name, n_channels, len(target_var_dict), 
+    model, model_forward, _ = named_network(model_name, n_channels, len(target_var_dict), seq_length=len(dg_train.past_times),
                                          kernel_sizes=kernel_sizes, filters=filters, dropout_rate=dropout_rate)
     print('total #parameters: ', np.sum([np.prod(item.shape) for item in model.state_dict().values()]))
     if past_times_own_axis:

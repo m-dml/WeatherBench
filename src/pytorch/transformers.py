@@ -17,7 +17,33 @@ def setup_conv(in_channels, out_channels, kernel_size, padding, bias, padding_mo
                               padding=padding,
                               bias=bias)
 
+def tensor5D_conv(conv, x, axis=0):
+    """
+    Convenience function to apply 2D convolutions to last two axes of 5D tensor
+    Parameters
+    ----------    
+    conv: object
+        Convolutional layer.
+    x: tensor
+        Input tensor.
+    axis: int
+        Onto which axis to collapse leading two axes of x. Default axis=0.
+    Returns
+    out: 5D tensor (if axis=0) or 4D tensor (if axis=1) resulting from conv(x.reshape(..))
+    
+    """
+    N,T,C,H,W = batch_shape = x.shape                   # [N, T, C, H, W]
 
+    if axis == 0:
+        x = conv(x.reshape((N*T, *batch_shape[2:])))    # [N*T,  C, H, W]
+        return x.reshape(N,T,-1,H,W)
+    elif axis == 1:
+        x = conv(x.reshape((N, T*C, *batch_shape[3:]))) # [N, T*C,  H, W]      
+        return x.reshape(N,-1,H,W) # conv along axis=1 does not preserve sequence length T!
+    else:
+        raise NotImplementedError
+
+    
 class ConvMHSA(torch.nn.Module):
     """
     Implementation of multi-head self-attention with convolutions to compute queries, keys, values 
@@ -80,29 +106,35 @@ class ConvMHSA(torch.nn.Module):
             torch.zeros(self.N_h * self.D_h, self.D_out)
         )
         self.b_out = torch.nn.Parameter(
-            torch.zeros(self.D_out,1,1)
+            torch.zeros(1,1,self.D_out,1,1)
         )
 
     def forward(self, x):
 
-        gates_qk = torch.split(self.conv_qk(x), self.D_k, dim=1)
-        # add dropout here?
-        gates_v = torch.split(self.conv_v(x), self.D_h, dim=1)
+        N,T,_,H,W = batch_shape = x.shape                     # [N, T, C, H, W]
+        x = x.reshape((N*T, *batch_shape[2:]))                # [N*T, C, H, W]
+
+        conv_qk = self.conv_qk(x).reshape(N,T,-1,H,W)
+        gates_qk = torch.split(conv_qk, self.D_k, dim=2)      # [ [N, T, D_k, H, W] ]
         # add dropout here?
 
-        k = torch.prod(torch.tensor(gates_qk[0].shape[1:], requires_grad=False, dtype=torch.float32))
+        conv_v = self.conv_v(x).reshape(N,T,-1,H,W)
+        gates_v = torch.split(conv_v, self.D_h, dim=2)        # [ [N, T, D_h, H, W] ]
+        # add dropout here?
+
+        k = torch.prod(torch.tensor(gates_qk[0].shape[2:], requires_grad=False, dtype=torch.float32))
         sqrk = torch.sqrt(k)
         X_h = []
         for h in range(self.N_h): # per attention head, do
-            X_q, X_k = gates_qk[2*h:2*(h+1)]                  # [N, D_k, H, W]
-            X_v = gates_v[h]                                  # [N, D_h, H, W]
-            A = torch.einsum('ncij,mcij->nm', X_q, X_k)       # [N, N]
-            softA = torch.nn.functional.softmax(A/sqrk,dim=1) # [N, N]
-            SA_v = torch.einsum('ik,kjnc->ijnc', softA, X_v)  # [N, D_h, H, W]
+            X_q, X_k = gates_qk[2*h:2*(h+1)]                  # [N, T, D_k, H, W]
+            X_v = gates_v[h]                                  # [N, T, D_h, H, W]
+            A = torch.einsum('ntcij,nrcij->ntr', X_q, X_k)    # [N, T, T]
+            softA = torch.nn.functional.softmax(A/sqrk,dim=2) # [N, T, T]
+            SA_v = torch.einsum('ntr,nrcij->ntcij',softA,X_v) # [N, T, D_h, H, W]
             X_h.append(SA_v)
 
-        X_h = torch.cat(X_h, axis=1)                          # [N, N_h*D_h, H, W]
-        out = torch.einsum('iknc,kj->ijnc', X_h, self.W_out)  # [N, D_out, H, W]
+        X_h = torch.cat(X_h, axis=2)                          # [N, T, N_h*D_h, H, W]
+        out = torch.einsum('ntcij,cd->ntdij', X_h,self.W_out) # [N, T, D_out, H, W]
 
         return out + self.b_out
 
@@ -175,31 +207,30 @@ class ConvTransformerEncoderLayer(torch.nn.Module):
             state['activation'] = F.relu
         super(TransformerEncoderLayer, self).__setstate__(state)
 
-    def forward(self, src, src_mask=None, src_key_padding_mask=None):
-        # type: (Tensor, Optional[Tensor], Optional[Tensor]) -> Tensor
+    def forward(self, x, x_mask=None, x_key_padding_mask=None):
         r"""Pass the input through the encoder layer.
 
         Args:
-            src: the sequence to the encoder layer (required).
-            src_mask: the mask for the src sequence (optional).
-            src_key_padding_mask: the mask for the src keys per batch (optional).
+            x: the sequence to the encoder layer (required).
+            x_mask: the mask for the src sequence (optional).
+            x_key_padding_mask: the mask for the x keys per batch (optional).
 
         Shape:
             see the docs in Transformer class.
         """
-        src2 = self.self_attn(src)
-        src = src + self.dropout1(src2)
-        #src = self.norm1(src)
-        src2 = self.conv2(self.dropout(self.activation(self.conv1(src))))
-        src = src + self.dropout2(src2)
-        #src = self.norm2(src)
-        return src
-
-
+        x += self.dropout(self.self_attn(x))
+        #x = self.norm1(x)
+        
+        xx = self.dropout1(self.activation(tensor5D_conv(self.conv1, x)))
+        x += self.dropout2(self.activation(tensor5D_conv(self.conv2, xx)))
+        #x = self.norm2(x)
+        return x
+    
 class ConvTransformer(torch.nn.Module):
     """ Simple fully convolutional ResNet with variable number of blocks and layers
     """
     def __init__(self,
+                 seq_length,
                  in_channels,
                  out_channels,
                  filters,
@@ -267,7 +298,7 @@ class ConvTransformer(torch.nn.Module):
             in_channels = n_filters
         self.layers = torch.nn.ModuleList(modules=layers)
 
-        self.final = torch.nn.Conv2d(in_channels=in_channels,
+        self.final = torch.nn.Conv2d(in_channels=in_channels*seq_length,
                                      out_channels=out_channels, 
                                      kernel_size=(1,1), 
                                      stride=1)
@@ -277,4 +308,4 @@ class ConvTransformer(torch.nn.Module):
         for layer in self.layers:
             x = layer(x)
 
-        return self.final(x.contiguous())
+        return tensor5D_conv(self.final, x.contiguous(), axis=1)

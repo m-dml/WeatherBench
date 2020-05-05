@@ -72,7 +72,7 @@ def load_data(var_dict, lead_time, train_years, validation_years, test_years,
     return dg_train, dg_validation, dg_test, dg_meta
 
 
-def named_network(model_name, n_input_channels, n_output_channels, **kwargs):
+def named_network(model_name, n_input_channels, n_output_channels, seq_length, **kwargs):
     if model_name == 'cnnbn':
 
         from .cnn import SimpleCNN
@@ -190,6 +190,7 @@ def named_network(model_name, n_input_channels, n_output_channels, **kwargs):
         from src.pytorch.transformers import ConvTransformer
 
         model = ConvTransformer(
+                         seq_length=seq_length,
                          in_channels=n_input_channels,
                          out_channels=n_output_channels,
                          filters=kwargs['filters'],

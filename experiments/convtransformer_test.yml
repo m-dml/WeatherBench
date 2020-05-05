@@ -4,8 +4,9 @@ res_dir: /gpfs/work/nonnenma/results/forecast_predictability/weatherbench/5_625d
 mmap_mode: None
 lead_time: 72
 past_times: [-3, -6, -9, -12, -15, -18, -21, -24, -27, -30, -33, -36]
+past_times_own_axis: True
 model_name: ConvTransformer
-batch_size: 32
+batch_size: 16
 test_years: [2017, 2018]
 train_years: [1979, 2015]
 validation_years: [2016, 2016]
@@ -20,5 +21,5 @@ max_patience: 50
 eval_every: 2000
 max_epochs: 200
 var_dict: {'geopotential': ('z', [100, 200, 500, 850, 1000]), 'temperature': ('t', [100, 200, 500, 850, 1000]), 'u_component_of_wind': ('u', [100, 200, 500, 850, 1000]), 'v_component_of_wind': ('v', [100, 200, 500, 850, 1000]), 'constants': ['lsm','orography','lat2d']}
-filters: [299, 299, 299, 299, 299, 299]
-kernel_sizes: [3, 3, 3, 3, 3, 3]
+filters: [23, 23, 23, 23, 23, 23, 23, 23]
+kernel_sizes: [3, 3, 3, 3, 3, 3, 3, 3]
