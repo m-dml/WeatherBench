@@ -202,7 +202,7 @@ def named_network(model_name, n_input_channels, n_output_channels, seq_length, *
                          sa_kernel_sizes=None,
                          bias=True, 
                          attention_bias=True, 
-                         LayerNorm=torch.nn.LayerNorm,
+                         layerNorm=torch.nn.LayerNorm,
                          padding_mode='circular', 
                          dropout=0., 
                          activation="relu")
