@@ -202,9 +202,9 @@ def named_network(model_name, n_input_channels, n_output_channels, seq_length, *
                          sa_kernel_sizes=None,
                          bias=True, 
                          attention_bias=True, 
-                         layerNorm=torch.nn.LayerNorm,
+                         layerNorm=torch.nn.BatchNorm2d,
                          padding_mode='circular', 
-                         dropout=0., 
+                         dropout=kwargs['dropout_rate'], 
                          activation="relu")
 
         def model_forward(input):

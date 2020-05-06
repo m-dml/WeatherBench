@@ -21,33 +21,37 @@ def setup_conv(in_channels, out_channels, kernel_size, padding, bias, padding_mo
                               padding=padding,
                               bias=bias)
 
-def tensor5D_conv(conv, x, axis=0):
+def tensor5D_conv(x,  conv, norm=torch.nn.Identity(), activation=torch.nn.Identity(), axis=0):
     """
     Convenience function to apply 2D convolutions to last two axes of 5D tensor.
     
     Parameters
     ----------
-    conv: object
-        Convolutional layer.
     x: tensor
         Input tensor.
+    conv: function
+        Convolutional layer.
+    norm: function
+        Normalization layer.
+    activation: function
+        Activation function.        
     axis: int
         Onto which axis to collapse leading two axes of x. Default axis=0.
     Returns
     out: 5D tensor (if axis=0) or 4D tensor (if axis=1) resulting from conv(x.reshape(..))
     
     """
-    N,T,C,H,W = batch_shape = x.shape                   # [N, T, C, H, W]
+    assert axis in [0,1]
+    N,T,C,H,W = batch_shape = x.shape             # [N, T, C, H, W]
 
     if axis == 0:
-        x = conv(x.reshape((N*T, *batch_shape[2:])))    # [N*T,  C, H, W]
-        return x.reshape(N,T,-1,H,W)
-    elif axis == 1:
-        x = conv(x.reshape((N, T*C, *batch_shape[3:]))) # [N, T*C,  H, W]      
-        return x.reshape(N,-1,H,W) # conv along axis=1 does not preserve sequence length T!
-    else:
-        raise NotImplementedError
+        x = x.reshape((N*T, *batch_shape[2:]))    # [N*T,  C, H, W]
+    else: # axis == 1
+        x = x.reshape((N, T*C, *batch_shape[3:])) # [N, T*C,  H, W]      
 
+    x = activation(norm(conv(x)))
+    
+    return x.reshape(N,T,-1,H,W) if axis == 0 else x.reshape(N,-1,H,W)
 
 class ConvMHSA(torch.nn.Module):
     """
@@ -93,7 +97,9 @@ class ConvMHSA(torch.nn.Module):
         self.bias = bias
         
         self.dropout = dropout
-        assert dropout == 0., 'dropout not yet implemented'
+        if self.dropout > 0:
+            self.dropout = 0
+            print('resetting dropout to zero in MHSA layer - not yet implemented!')
 
         self.conv_qk = setup_conv(in_channels=self.D_in, 
                                   out_channels=2*self.N_h * self.D_k, 
@@ -187,26 +193,27 @@ class ConvTransformerEncoderBlock(torch.nn.Module):
     """
     def __init__(self, in_channels, D_out, hidden_channels, out_channels,
                  kernel_size, N_h, D_h, D_k, attention_kernel_size,
-                 bias=True, attention_bias=True, layerNorm=torch.nn.LayerNorm,
+                 bias=True, attention_bias=True, layerNorm=torch.nn.BatchNorm2d,
                  padding_mode='circular', dropout=0.1, activation="relu"):
 
-        super(ConvTransformerEncoderLayer, self).__init__()
+        super(ConvTransformerEncoderBlock, self).__init__()
 
         assert in_channels == D_out, 'no up/down-sampling implemented yet'
         assert D_out == out_channels, 'no up/down-sampling implemented yet'
-        self.self_attn = ConvMHSA(D_in=in_channels, D_out=D_out, 
-                                  N_h=N_h, D_h=D_h, D_k=D_k,
-                                  kernel_size=attention_kernel_size, bias=attention_bias, 
-                                  padding_mode=padding_mode, dropout=dropout)
+
+        # multi-head self-attention
+        self.sattn = ConvMHSA(D_in=in_channels, D_out=D_out, 
+                              N_h=N_h, D_h=D_h, D_k=D_k,
+                              kernel_size=attention_kernel_size, bias=attention_bias, 
+                              padding_mode=padding_mode, dropout=dropout)
                     
-        # Implementation of Feedforward model
+        # feedforward model
         self.conv1 = setup_conv(in_channels=D_out, 
                                   out_channels=hidden_channels, 
                                   kernel_size=kernel_size, 
                                   padding=(kernel_size[0] // 2, kernel_size[1] // 2), 
                                   bias=bias, 
                                   padding_mode=padding_mode)
-        self.dropout = torch.nn.Dropout(dropout)
         self.conv2 = setup_conv(in_channels=hidden_channels, 
                                   out_channels=out_channels, 
                                   kernel_size=kernel_size, 
@@ -214,8 +221,12 @@ class ConvTransformerEncoderBlock(torch.nn.Module):
                                   bias=bias, 
                                   padding_mode=padding_mode)
 
-        #self.norm1 = layerNorm(d_model)
-        #self.norm2 = layerNorm(d_model)
+        assert layerNorm is torch.nn.BatchNorm2d, 'only batch normalization supported for now'
+        self.norm  = layerNorm(num_features=D_out)
+        self.norm1 = layerNorm(num_features=hidden_channels)
+        self.norm2 = layerNorm(num_features=out_channels)
+
+        self.dropout  = torch.nn.Dropout(dropout)
         self.dropout1 = torch.nn.Dropout(dropout)
         self.dropout2 = torch.nn.Dropout(dropout)
 
@@ -238,12 +249,14 @@ class ConvTransformerEncoderBlock(torch.nn.Module):
         x_key_padding_mask: tensor 
             Mask for the x keys per batch (optional).
         """
-        x += self.dropout(self.self_attn(x))
-        #x = self.norm1(x)
-        
-        xx = self.dropout1(self.activation(tensor5D_conv(self.conv1, x)))
-        x += self.dropout2(self.activation(tensor5D_conv(self.conv2, xx)))
-        #x = self.norm2(x)
+        x += self.dropout( tensor5D_conv(x=self.sattn(x),
+                                         conv=torch.nn.Identity(),
+                                         norm=self.norm,
+                                         activation=self.activation,
+                                         axis=0)
+                         )
+        xx = self.dropout1(tensor5D_conv( x, self.conv1, self.norm1, self.activation))
+        x += self.dropout2(tensor5D_conv(xx, self.conv2, self.norm2, self.activation))
         return x
 
 
@@ -263,7 +276,7 @@ class ConvTransformer(torch.nn.Module):
                  sa_kernel_sizes=None,
                  bias=True, 
                  attention_bias=True, 
-                 layerNorm=torch.nn.LayerNorm,
+                 layerNorm=torch.nn.BatchNorm2d,
                  padding_mode='circular', 
                  dropout=0.1, 
                  activation="relu"):
@@ -350,4 +363,4 @@ class ConvTransformer(torch.nn.Module):
         for layer in self.layers:
             x = layer(x)
 
-        return tensor5D_conv(self.final, x.contiguous(), axis=1)
+        return tensor5D_conv(x.contiguous(), self.final, axis=1)
