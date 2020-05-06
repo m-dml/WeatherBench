@@ -124,26 +124,24 @@ class ConvMHSA(torch.nn.Module):
     def forward(self, x):
 
         N,T,_,H,W = batch_shape = x.shape                     # [N, T, C, H, W]
-        x = x.reshape((N*T, *batch_shape[2:]))                # [N*T, C, H, W]
 
-        conv_qk = self.conv_qk(x).reshape(N,T,-1,H,W)
+        conv_qk = tensor5D_conv(x, self.conv_qk)              # [N, T, 2*N_h*D_k, H, W]
         gates_qk = torch.split(conv_qk, self.D_k, dim=2)      # [ [N, T, D_k, H, W] ]
         # add dropout here?
 
-        conv_v = self.conv_v(x).reshape(N,T,-1,H,W)
+        conv_v = tensor5D_conv(x, self.conv_v)                # [N, T, N_h*D_h, H, W]
         gates_v = torch.split(conv_v, self.D_h, dim=2)        # [ [N, T, D_h, H, W] ]
         # add dropout here?
 
-        k = torch.prod(torch.tensor(gates_qk[0].shape[2:], requires_grad=False, dtype=torch.float32))
-        sqrk = torch.sqrt(k)
+        sqrtk = torch.tensor(np.sqrt(self.D_k * H * W), requires_grad=False, dtype=torch.float32)
         X_h = []
         for h in range(self.N_h): # per attention head, do
             X_q, X_k = gates_qk[2*h:2*(h+1)]                  # [N, T, D_k, H, W]
             X_v = gates_v[h]                                  # [N, T, D_h, H, W]
             A = torch.einsum('ntcij,nrcij->ntr', X_q, X_k)    # [N, T, T]
             softA = torch.nn.functional.softmax(A/sqrk,dim=2) # [N, T, T]
-            SA_v = torch.einsum('ntr,nrcij->ntcij',softA,X_v) # [N, T, D_h, H, W]
-            X_h.append(SA_v)
+            AX_v = torch.einsum('ntr,nrcij->ntcij',softA,X_v) # [N, T, D_h, H, W]
+            X_h.append(AX_v)
 
         X_h = torch.cat(X_h, axis=2)                          # [N, T, N_h*D_h, H, W]
         out = torch.einsum('ntcij,cd->ntdij', X_h,self.W_out) # [N, T, D_out, H, W]
@@ -250,10 +248,9 @@ class ConvTransformerEncoderBlock(torch.nn.Module):
             Mask for the x keys per batch (optional).
         """
         x += self.dropout( tensor5D_conv(x=self.sattn(x),
-                                         conv=torch.nn.Identity(),
-                                         norm=self.norm,
-                                         activation=self.activation,
-                                         axis=0)
+                                         conv=torch.nn.Identity(),   # no conv, just  
+                                         norm=self.norm,             # want norm layer
+                                         activation=self.activation) # and activation
                          )
         xx = self.dropout1(tensor5D_conv( x, self.conv1, self.norm1, self.activation))
         x += self.dropout2(tensor5D_conv(xx, self.conv2, self.norm2, self.activation))
