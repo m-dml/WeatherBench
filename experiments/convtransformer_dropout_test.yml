@@ -1,4 +1,4 @@
-exp_id: convtransformer_test
+exp_id: convtransformer_dropout_test
 datadir: /gpfs/work/nonnenma/data/forecast_predictability/weatherbench/5_625deg/
 res_dir: /gpfs/work/nonnenma/results/forecast_predictability/weatherbench/5_625deg/
 mmap_mode: None
@@ -20,7 +20,7 @@ max_patience: 50
 eval_every: 2000
 max_epochs: 200
 var_dict: {'geopotential': ('z', [100, 200, 500, 850, 1000]), 'temperature': ('t', [100, 200, 500, 850, 1000]), 'u_component_of_wind': ('u', [100, 200, 500, 850, 1000]), 'v_component_of_wind': ('v', [100, 200, 500, 850, 1000]), 'constants': ['lsm','orography','lat2d']}
-dropout_rate: 0.0
+dropout_rate: 0.1
 filters: [23, 23, 23, 23, 23, 23, 23, 23]
 kernel_sizes: [3, 3, 3, 3, 3, 3, 3, 3]
 layerNorm: ID

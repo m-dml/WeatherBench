@@ -1,4 +1,4 @@
-exp_id: convtransformer_test
+exp_id: convtransformer_norm_test
 datadir: /gpfs/work/nonnenma/data/forecast_predictability/weatherbench/5_625deg/
 res_dir: /gpfs/work/nonnenma/results/forecast_predictability/weatherbench/5_625deg/
 mmap_mode: None
@@ -23,7 +23,7 @@ var_dict: {'geopotential': ('z', [100, 200, 500, 850, 1000]), 'temperature': ('t
 dropout_rate: 0.0
 filters: [23, 23, 23, 23, 23, 23, 23, 23]
 kernel_sizes: [3, 3, 3, 3, 3, 3, 3, 3]
-layerNorm: ID
+layerNorm: BN
 N_h: 8
 D_h: 8
 D_k: 16

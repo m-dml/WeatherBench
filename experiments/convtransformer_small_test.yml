@@ -1,4 +1,4 @@
-exp_id: convtransformer_test
+exp_id: convtransformer_small_test
 datadir: /gpfs/work/nonnenma/data/forecast_predictability/weatherbench/5_625deg/
 res_dir: /gpfs/work/nonnenma/results/forecast_predictability/weatherbench/5_625deg/
 mmap_mode: None
@@ -25,6 +25,6 @@ filters: [23, 23, 23, 23, 23, 23, 23, 23]
 kernel_sizes: [3, 3, 3, 3, 3, 3, 3, 3]
 layerNorm: ID
 N_h: 8
-D_h: 8
-D_k: 16
+D_h: 3
+D_k: 3
 D_out: [23, 23, 23, 23, 23, 23, 23, 23]
