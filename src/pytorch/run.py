@@ -18,9 +18,8 @@ def mkdir_p(dir):
 def run_exp(exp_id, datadir, res_dir, mmap_mode, model_name, 
             lead_time, test_years, train_years, validation_years,
             loss_fun, var_dict, past_times, past_times_own_axis,
-            kernel_sizes, filters, weight_decay, dropout_rate,
-            batch_size, max_epochs, eval_every, max_patience,
-            lr, lr_min, lr_decay, max_lr_patience, only_eval):
+            weight_decay, batch_size, max_epochs, eval_every, max_patience,
+            lr, lr_min, lr_decay, max_lr_patience, only_eval, **net_kwargs):
 
     device = init_torch_device()
     target_var_dict={'geopotential': 500, 'temperature': 850}
@@ -59,8 +58,12 @@ def run_exp(exp_id, datadir, res_dir, mmap_mode, model_name,
 
 
     ## define model
-    model, model_forward, _ = named_network(model_name, n_channels, len(target_var_dict), seq_length=len(dg_train.past_times),
-                                         kernel_sizes=kernel_sizes, filters=filters, dropout_rate=dropout_rate)
+    print('net_kwargs', net_kwargs)
+    model, model_forward, _ = named_network(model_name, 
+                                            n_channels, 
+                                            len(target_var_dict), 
+                                            len(dg_train.past_times),
+                                            **net_kwargs)
     print('total #parameters: ', np.sum([np.prod(item.shape) for item in model.state_dict().values()]))
     if past_times_own_axis:
         print('output shape: ', model_forward(torch.zeros((7,len(past_times)+1,n_channels,32,64))).shape)        
@@ -120,13 +123,18 @@ def setup(conf_exp=None):
     p.add_argument('--train_years', type=str, nargs='+', default=('1979', '2015'), help='years for training')
     p.add_argument('--validation_years', type=str, nargs='+', default=('2016', '2016'), help='years for validation')
     p.add_argument('--test_years', type=str, nargs='+', default=('2017', '2018'), help='years for testing')
-    
+
     p.add_argument('--var_dict', required=True, help='dictionary of fields to use for prediction')
     #p.add_argument('--target_var_dict', help='dictionary of fields to predict')
     p.add_argument('--past_times', type=int, nargs='+', default=[], help='additional time points as input')
     p.add_argument('--past_times_own_axis', type=bool, default=False, help='if additional input times are on own axis')
-    
-    
+
+    p.add_argument('--layerNorm', type=str, default='BN', help='normalization layer for some network architectures')
+    p.add_argument('--N_h', type=int, default=8, help='number of attention heads for self-attention architectures')
+    p.add_argument('--D_h', type=int, default=8, help='output dim per attention heads for self-attention architectures')
+    p.add_argument('--D_k', type=int, default=16, help='query/key dim for self-attention architectures')
+    p.add_argument('--D_out', default=None, nargs='+', help='output dimensionality for self-attention architectures')
+
     p.add_argument('--loss_fun', type=str, default='mse', help='loss function for model training')
     p.add_argument('--batch_size', type=int, default=64, help='batch-size')
     p.add_argument('--max_epochs', type=int, default=2000, help='epochs')

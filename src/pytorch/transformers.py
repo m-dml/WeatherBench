@@ -133,7 +133,7 @@ class ConvMHSA(torch.nn.Module):
         gates_v = torch.split(conv_v, self.D_h, dim=2)        # [ [N, T, D_h, H, W] ]
         # add dropout here?
 
-        sqrtk = torch.tensor(np.sqrt(self.D_k * H * W), requires_grad=False, dtype=torch.float32)
+        sqrk = torch.tensor(np.sqrt(self.D_k * H * W), requires_grad=False, dtype=torch.float32)
         X_h = []
         for h in range(self.N_h): # per attention head, do
             X_q, X_k = gates_qk[2*h:2*(h+1)]                  # [N, T, D_k, H, W]
@@ -219,10 +219,14 @@ class ConvTransformerEncoderBlock(torch.nn.Module):
                                   bias=bias, 
                                   padding_mode=padding_mode)
 
-        assert layerNorm is torch.nn.BatchNorm2d, 'only batch normalization supported for now'
-        self.norm  = layerNorm(num_features=D_out)
-        self.norm1 = layerNorm(num_features=hidden_channels)
-        self.norm2 = layerNorm(num_features=out_channels)
+        if layerNorm is torch.nn.BatchNorm2d: 
+            self.norm  = layerNorm(num_features=D_out)
+            self.norm1 = layerNorm(num_features=hidden_channels)
+            self.norm2 = layerNorm(num_features=out_channels)
+        elif isinstance(layerNorm, torch.nn.Identity):
+            self.norm = self.norm1 = self.norm2 = layerNorm
+        else:
+            raise NotImplementedError
 
         self.dropout  = torch.nn.Dropout(dropout)
         self.dropout1 = torch.nn.Dropout(dropout)
