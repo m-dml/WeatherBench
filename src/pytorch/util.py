@@ -220,7 +220,7 @@ def named_network(model_name, n_input_channels, n_output_channels, seq_length, *
             #out =  model.forward(input.reshape((input.shape[0], -1, *input.shape[3:])))
             #return out.reshape(batch_shape[0], -1, *batch_shape[3:])
             return model.forward(input)
-        past_times_own_axis = False
+        past_times_own_axis = True
 
     else:
         raise NotImplementedError()
