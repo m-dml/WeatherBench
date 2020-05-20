@@ -133,7 +133,9 @@ def setup(conf_exp=None):
     p.add_argument('--N_h', type=int, default=8, help='number of attention heads for self-attention architectures')
     p.add_argument('--D_h', type=int, default=8, help='output dim per attention heads for self-attention architectures')
     p.add_argument('--D_k', type=int, default=16, help='query/key dim for self-attention architectures')
-    p.add_argument('--D_out', default=None, nargs='+', help='output dimensionality for self-attention architectures')
+    p.add_argument('--D_out', type=int, default=None, nargs='+', help='output dimensionality for self-attention architectures')
+    p.add_argument('--filters_ff', type=int, default=None, nargs='+', help='filters for feed-forward convs in TransformerBlock')
+    p.add_argument('--blockType', default='adding', type=str, help='type of Transformer block for convTransformer model')
 
     p.add_argument('--loss_fun', type=str, default='mse', help='loss function for model training')
     p.add_argument('--batch_size', type=int, default=64, help='batch-size')

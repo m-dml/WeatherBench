@@ -202,6 +202,7 @@ def named_network(model_name, n_input_channels, n_output_channels, seq_length, *
                          in_channels=n_input_channels,
                          out_channels=n_output_channels,
                          filters=kwargs['filters'],
+                         filters_ff=kwargs['filters_ff'],
                          kernel_sizes=[(i,i) for i in kwargs['kernel_sizes']], 
                          N_h=kwargs['N_h'],
                          D_h=kwargs['D_h'],
@@ -213,7 +214,8 @@ def named_network(model_name, n_input_channels, n_output_channels, seq_length, *
                          layerNorm=normLayers[kwargs['layerNorm']],
                          padding_mode='circular', 
                          dropout=kwargs['dropout_rate'], 
-                         activation="relu")
+                         activation="relu",
+                         blockType=kwargs['blockType'])
 
         def model_forward(input):
             #batch_shape = input.shape

@@ -6,17 +6,35 @@ from src.pytorch.util import named_network
 device = init_torch_device()
 
 n_channels = 23
-seq_length=13
-dropout_rate = 0.
-filters=[23, 23, 23, 23, 23, 23, 23, 23]
-kernel_sizes=[3, 3, 3, 3, 3, 3, 3, 3]
+n_output = 2
+seq_length = 13
+dropout_rate = 0.1
+filters = [24, 24, 24, 24, 24, 24, 24, 24]
+n_hidden = [64, 64, 64, 64, 64, 64, 64, 64]
+D_out = [23, 24, 24, 24, 24, 24, 24, 24]
+
+kernel_sizes = [3, 3, 3, 3, 3, 3, 3, 3]
+target_var_dict = [None, None]
+
+kwargs = {
+    'kernel_sizes' : kernel_sizes,
+    'filters' : filters,
+    'filters_ff' : n_hidden,
+    'dropout_rate' : dropout_rate,
+    'N_h' : 8,
+    'D_h' : 3,
+    'D_k' : 3,
+    'D_out' : D_out,
+    'layerNorm' : 'BN',
+    'blockType' : 'stacking'
+}
 
 model_name = 'ConvTransformer'
-model, model_forward, _ = named_network(model_name, n_channels, 2,  seq_length=seq_length,
-                                     kernel_sizes=kernel_sizes, filters=filters, dropout_rate=dropout_rate)
+model, model_forward, _ = named_network(model_name, n_channels, n_output, seq_length, **kwargs)
+
 
 inputs = torch.tensor(
-    np.random.normal(size=(16, seq_length, n_channels, 32, 64)),
+    np.random.normal(size=(16, seq_length, 23, 32, 64)),
     requires_grad=False,
     dtype=torch.float32)
 print(model_forward(inputs).shape)
