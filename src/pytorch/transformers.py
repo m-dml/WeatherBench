@@ -115,7 +115,7 @@ class ConvMHSA(torch.nn.Module):
                               padding_mode=padding_mode)
 
         self.W_out = torch.nn.Parameter(torch.zeros(self.N_h * self.D_h, self.D_out))
-        #torch.nn.init.kaiming_uniform_(self.W_out, a=0, mode='fan_in', nonlinearity='linear')
+        torch.nn.init.kaiming_uniform_(self.W_out, a=0, mode='fan_in', nonlinearity='linear')
         self.b_out = torch.nn.Parameter(torch.zeros(1,1,self.D_out,1,1))
 
     def forward(self, x):
