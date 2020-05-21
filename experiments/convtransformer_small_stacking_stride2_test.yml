@@ -25,7 +25,7 @@ blockType: stacking
 kernel_sizes: [3, 3, 3, 3, 3, 3, 3, 3]
 filters: [32, 32, 32, 32, 32, 32, 32, 32]
 filters_ff: [64, 64, 64, 64, 64, 64, 64, 64]
-D_out: [32, 32, 32, 32, 32, 32, 32, 32]
+D_out: [24, 24, 24, 24, 24, 24, 24, 24]
 layerNorm: ID
 N_h: 8
 D_h: 3
