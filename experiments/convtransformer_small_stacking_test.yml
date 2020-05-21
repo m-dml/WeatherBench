@@ -1,4 +1,4 @@
-exp_id: convtransformer_small_test
+exp_id: convtransformer_small_stacking_test
 datadir: /gpfs/work/nonnenma/data/forecast_predictability/weatherbench/5_625deg/
 res_dir: /gpfs/work/nonnenma/results/forecast_predictability/weatherbench/5_625deg/
 mmap_mode: None
