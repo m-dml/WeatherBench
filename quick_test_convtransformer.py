@@ -9,9 +9,9 @@ n_channels = 23
 n_output = 2
 seq_length = 13
 dropout_rate = 0.1
-filters = [24, 24, 24, 24, 24, 24, 24, 24]
+filters = [32, 32, 32, 32, 32, 32, 32, 32]
 n_hidden = [64, 64, 64, 64, 64, 64, 64, 64]
-D_out = [23, 24, 24, 24, 24, 24, 24, 24]
+D_out = [32, 32, 32, 32, 32, 32, 32, 32]
 
 kernel_sizes = [3, 3, 3, 3, 3, 3, 3, 3]
 target_var_dict = [None, None]
@@ -26,7 +26,8 @@ kwargs = {
     'D_k' : 3,
     'D_out' : D_out,
     'layerNorm' : 'BN',
-    'blockType' : 'stacking'
+    'blockType' : 'stacking',
+    'stride_qk' : 2
 }
 
 model_name = 'ConvTransformer'

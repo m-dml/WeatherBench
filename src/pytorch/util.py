@@ -213,6 +213,7 @@ def named_network(model_name, n_input_channels, n_output_channels, seq_length, *
                          attention_bias=True, 
                          layerNorm=normLayers[kwargs['layerNorm']],
                          padding_mode='circular', 
+                         stride_qk=kwargs['stride_qk'],
                          dropout=kwargs['dropout_rate'], 
                          activation="relu",
                          blockType=kwargs['blockType'])

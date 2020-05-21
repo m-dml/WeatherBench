@@ -2,7 +2,7 @@ import numpy as np
 import torch
 from src.pytorch.layers import PeriodicConv2D
 
-def setup_conv(in_channels, out_channels, kernel_size, padding, bias, padding_mode):
+def setup_conv(in_channels, out_channels, kernel_size, padding, bias, padding_mode, stride=1):
     """
     Select between regular and circular 2D convolutional layers.
     padding_mode='circular' returns a convolution that wraps padding around the final axis.
@@ -13,12 +13,14 @@ def setup_conv(in_channels, out_channels, kernel_size, padding, bias, padding_mo
                       kernel_size=kernel_size, 
                       padding=[i-1 for i in kernel_size], 
                       bias=bias, 
+                      stride=stride,
                       padding_mode=padding_mode)
     else:
         return torch.nn.Conv2d(in_channels=in_channels,
                               out_channels=out_channels,
                               kernel_size=kernel_size,
                               padding=padding,
+                              stride=stride,
                               bias=bias)
 
 def tensor5D_conv(x,  conv, norm=torch.nn.Identity(), activation=torch.nn.Identity(), axis=0):
@@ -50,14 +52,15 @@ def tensor5D_conv(x,  conv, norm=torch.nn.Identity(), activation=torch.nn.Identi
         x = x.reshape((N, T*C, *batch_shape[3:])) # [N, T*C,  H, W]      
 
     x = activation(norm(conv(x)))
-    
-    return x.reshape(N,T,-1,H,W) if axis == 0 else x.reshape(N,-1,H,W)
+    C_, H_, W_ = x.shape[-3:]
+
+    return x.reshape(N,T,C_,H_,W_) if axis == 0 else x.reshape(N,-1,H_,W_)
 
 class ConvMHSA(torch.nn.Module):
     """
     Implementation of multi-head self-attention with convolutions to compute queries, keys, values 
     """
-    def __init__(self, D_in, D_out, N_h, D_h, D_k, kernel_size, bias, padding_mode, dropout=0.):
+    def __init__(self, D_in, D_out, N_h, D_h, D_k, kernel_size, bias, padding_mode, dropout=0., stride_qk=1):
         """
         Initialize ConvSALayer layer.
         
@@ -95,6 +98,7 @@ class ConvMHSA(torch.nn.Module):
         self.padding = kernel_size[0] // 2, kernel_size[1] // 2
         self.padding_mode = padding_mode
         self.bias = bias
+        self.stride_qk = stride_qk
         
         self.dropout = dropout
         if self.dropout > 0:
@@ -106,6 +110,7 @@ class ConvMHSA(torch.nn.Module):
                                   kernel_size=self.kernel_size, 
                                   padding=self.padding, 
                                   bias=self.bias, 
+                                  stride=self.stride_qk,
                                   padding_mode=self.padding_mode)
         self.conv_v = setup_conv(in_channels=self.D_in,
                               out_channels=self.N_h * self.D_h, 
@@ -183,13 +188,15 @@ class ConvTransformerEncoderBlock(torch.nn.Module):
         Number of channels for convolved query and key gates.
     padding_mode: str
         How to pad the data ('circular' for wrap-around padding on last axis)
+    stride_qk: int
+        Stride for query and key convolutions in MHSA stages
     dropout: float
         Dropout rate.        
     """
     def __init__(self, in_channels, D_out, hidden_channels, out_channels,
                  kernel_size, N_h, D_h, D_k, attention_kernel_size,
                  bias=True, attention_bias=True, layerNorm=torch.nn.BatchNorm2d,
-                 padding_mode='circular', dropout=0.1, activation="relu"):
+                 padding_mode='circular', stride_qk=1, dropout=0.1, activation="relu"):
 
         super(ConvTransformerEncoderBlock, self).__init__()
 
@@ -200,14 +207,14 @@ class ConvTransformerEncoderBlock(torch.nn.Module):
         self.sattn = ConvMHSA(D_in=in_channels, D_out=D_out, 
                               N_h=N_h, D_h=D_h, D_k=D_k,
                               kernel_size=attention_kernel_size, bias=attention_bias, 
-                              padding_mode=padding_mode, dropout=dropout)
+                              padding_mode=padding_mode, stride_qk=stride_qk, dropout=dropout)
                     
         # feedforward model
         self.conv1 = setup_conv(in_channels=D_out, 
                                   out_channels=hidden_channels, 
                                   kernel_size=kernel_size, 
                                   padding=(kernel_size[0] // 2, kernel_size[1] // 2), 
-                                  bias=bias, 
+                                  bias=bias,
                                   padding_mode=padding_mode)
         self.conv2 = setup_conv(in_channels=hidden_channels, 
                                   out_channels=out_channels, 
@@ -295,25 +302,28 @@ class ConvTransformerStackingEncoderBlock(ConvTransformerEncoderBlock):
         Number of channels for convolved query and key gates.
     padding_mode: str
         How to pad the data ('circular' for wrap-around padding on last axis)
+    stride_qk: int
+        Stride for query and key convolutions in MHSA stages        
     dropout: float
         Dropout rate.        
     """
     def __init__(self, in_channels, D_out, hidden_channels, out_channels,
                  kernel_size, N_h, D_h, D_k, attention_kernel_size,
                  bias=True, attention_bias=True, layerNorm=torch.nn.BatchNorm2d,
-                 padding_mode='circular', dropout=0.1, activation="relu"):
+                 padding_mode='circular', stride_qk=1, dropout=0.1, activation="relu"):
 
         super(ConvTransformerStackingEncoderBlock, self).__init__(in_channels, D_out, hidden_channels,
                                                                   out_channels, kernel_size, N_h, D_h, D_k,
                                                                   attention_kernel_size, bias, attention_bias,
-                                                                  layerNorm, padding_mode, dropout, activation)
+                                                                  layerNorm, padding_mode, stride_qk, 
+                                                                  dropout, activation)
 
         # feedforward model
         self.conv1 = setup_conv(in_channels=hidden_channels, 
                                   out_channels=hidden_channels, 
                                   kernel_size=kernel_size, 
                                   padding=(kernel_size[0] // 2, kernel_size[1] // 2), 
-                                  bias=bias, 
+                                  bias=bias,
                                   padding_mode=padding_mode)
         self.conv2 = setup_conv(in_channels=hidden_channels, 
                                   out_channels=hidden_channels, 
@@ -404,6 +414,7 @@ class ConvTransformer(torch.nn.Module):
                  attention_bias=True, 
                  layerNorm=torch.nn.BatchNorm2d,
                  padding_mode='circular', 
+                 stride_qk=1,
                  dropout=0.1, 
                  activation="relu",
                  blockType="adding"):
@@ -448,6 +459,8 @@ class ConvTransformer(torch.nn.Module):
             Dropout rate.
         activation: str
             String specifying nonlinearity.
+        stride_qk: int
+            Stride for query and key convolutions in MHSA stages              
         blockType: str
             String specifying which type of convolutional Transformer block. Either 'adding' or 'stacking'.
         """
@@ -478,7 +491,8 @@ class ConvTransformer(torch.nn.Module):
                                  bias=bias, 
                                  attention_bias=attention_bias, 
                                  layerNorm=layerNorm,
-                                 padding_mode=padding_mode, 
+                                 padding_mode=padding_mode,
+                                 stride_qk=stride_qk,
                                  dropout=dropout, 
                                  activation=activation)
                           )
