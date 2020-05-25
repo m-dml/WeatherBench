@@ -394,7 +394,7 @@ class Dataset_memmap(BaseDataset):
             else:
                 short_name, lvls = var_dict[var]
                 for lvl in lvls:
-                    tag = short_name + '_' + str(lvl) if not lvl is None else short_name + '_1'
+                    tag = short_name + '_' + str(lvl) if not lvl is None else short_name #+ '_1'
                     idx.append(np.where(tag == self.level_names)[0])
         self._var_idx = np.concatenate(idx)
         
