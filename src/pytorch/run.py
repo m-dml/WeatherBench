@@ -39,8 +39,19 @@ def run_exp(exp_id, datadir, res_dir, mmap_mode, model_name,
         mmap_mode=mmap_mode, past_times=past_times, past_times_own_axis=past_times_own_axis
     )
 
+    if 'relative_time' in var_dict.keys():
+        print('using relative time stamps for input image sequence') 
+        print('- will do simple arithmetic on time channel right after loading from disk') 
+        idx_t = np.where(dg_train.level_names=='time_map')[0]
+        rel_time_index = np.where(dg_train._var_idx==idx_t)[0][0]
+        rel_time_scale = dg_train.data.shape[0]/24 
+    else:
+        rel_time_index, rel_time_scale = None, None        
     def collate_fn(batch):
-        return collate_fn_memmap(batch, dg_train, past_times_own_axis=past_times_own_axis)
+        return collate_fn_memmap(batch, dg_train, 
+                                 past_times_own_axis=past_times_own_axis,
+                                 rel_time_index=rel_time_index, 
+                                 rel_time_scale=rel_time_scale)
 
     validation_loader = torch.utils.data.DataLoader(
         dg_validation, batch_size=batch_size, collate_fn=collate_fn, drop_last=False,

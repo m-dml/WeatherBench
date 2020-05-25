@@ -358,13 +358,16 @@ class Dataset_dask_thinning(BaseDataset):
         return zip(X.compute(),y.compute())
 
     
-def collate_fn_memmap(batch, dg, past_times_own_axis=False):
+def collate_fn_memmap(batch, dg, past_times_own_axis=False, rel_time_index=None, rel_time_scale=None):    
     # batch here is just a list of indices
     X = dg.data[(batch + dg._past_idx).flatten().reshape(-1,1), dg._var_idx, :, :]
     if past_times_own_axis:
         # find time point t, time-offset d and field index i as X[t,d,i,:,:]
         X = X.reshape((len(dg._past_idx), len(batch),  len(dg._var_idx), *X.shape[2:])).transpose(1,0,2,3,4)
+        if not rel_time_index is None: 
+            X[:,:,rel_time_index,:,:] = (X[:,:,rel_time_index,:,:] - X[:,:1,rel_time_index,:,:]) * rel_time_scale
     else:
+        assert rel_time_index is None
         # find time point t, time-offset d and field index i as X[t,(d_max-d)*n_fields+i,:,:]
         X = X.reshape((len(batch), -1, *X.shape[2:]))
     y = dg.data[np.array(batch).reshape(-1,1) + dg.lead_time, dg._target_idx, :, :]
