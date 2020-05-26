@@ -26,8 +26,9 @@ kernel_sizes: [3, 3, 3]
 kernel_size_init: 3
 kernel_size_final: 3
 filters: [32, 32, 64]
-filters_ff: [[64,64], [64,64], [128,128]]
-filters_ff_init: [64,64]
+filters_ff: [64, 64, 128]
+nresblocks_ff: [2, 2, 2]
+filters_ff_init: [64, 64]
 filters_ff_final: [128, 128, 128, 2]
 D_out: [24, 24, 24]
 layerNorm: ID

@@ -204,7 +204,7 @@ def named_network(model_name, n_input_channels, n_output_channels, seq_length, *
                          filters_ff_init=kwargs['filters_ff_init'],
 
                          filters=kwargs['filters'],
-                         filters_ff=kwargs['filters_ff'],
+                         filters_ff=[[f for _ in range(n)] for f,n in zip(kwargs['filters_ff'],kwargs['nresblocks_ff'])],
                          kernel_sizes=[(i,i) for i in kwargs['kernel_sizes']], 
                          N_h=kwargs['N_h'],
                          D_h=kwargs['D_h'],
