@@ -1,27 +1,6 @@
 import numpy as np
 import torch
-from src.pytorch.layers import PeriodicConv2D
-
-def setup_conv(in_channels, out_channels, kernel_size, padding, bias, padding_mode, stride=1):
-    """
-    Select between regular and circular 2D convolutional layers.
-    padding_mode='circular' returns a convolution that wraps padding around the final axis.
-    """
-    if padding_mode=='circular':
-        return PeriodicConv2D(in_channels=in_channels,
-                      out_channels=out_channels, 
-                      kernel_size=kernel_size, 
-                      padding=[i-1 for i in kernel_size], 
-                      bias=bias, 
-                      stride=stride,
-                      padding_mode=padding_mode)
-    else:
-        return torch.nn.Conv2d(in_channels=in_channels,
-                              out_channels=out_channels,
-                              kernel_size=kernel_size,
-                              padding=padding,
-                              stride=stride,
-                              bias=bias)
+from src.pytorch.layers import setup_conv, ResNetBlock
 
 def tensor5D_conv(x,  conv, norm=torch.nn.Identity(), activation=torch.nn.Identity(), axis=0):
     """
@@ -168,6 +147,8 @@ class ConvTransformerEncoderBlock(torch.nn.Module):
         Number of output channels for first residual convolution. 
     out_channels: int
         Number of channels of output tensor (output of second residual convolution).
+    filters_ff: list of int
+        List of numbers of convolutional filters for feedforward networks.
     kernel_size: list of (int, int)
         Size of the convolutional kernel for the residual layers.
     bias: bool
@@ -193,16 +174,13 @@ class ConvTransformerEncoderBlock(torch.nn.Module):
     dropout: float
         Dropout rate.        
     """
-    def __init__(self, in_channels, D_out, hidden_channels, out_channels,
+    def __init__(self, in_channels, D_out, hidden_channels, filters_ff,
                  kernel_size, N_h, D_h, D_k, attention_kernel_size,
                  bias=True, attention_bias=True, layerNorm=torch.nn.BatchNorm2d,
                  padding_mode='circular', stride_qk=1, dropout=0.1, activation="relu"):
 
         super(ConvTransformerEncoderBlock, self).__init__()
-
-        #assert in_channels == D_out, 'no up/down-sampling implemented yet'
-        #assert D_out == out_channels, 'no up/down-sampling implemented yet'
-
+        
         # multi-head self-attention
         self.sattn = ConvMHSA(D_in=in_channels, D_out=D_out, 
                               N_h=N_h, D_h=D_h, D_k=D_k,
@@ -210,31 +188,26 @@ class ConvTransformerEncoderBlock(torch.nn.Module):
                               padding_mode=padding_mode, stride_qk=stride_qk, dropout=dropout)
                     
         # feedforward model
-        self.conv1 = setup_conv(in_channels=D_out, 
-                                  out_channels=hidden_channels, 
-                                  kernel_size=kernel_size, 
-                                  padding=(kernel_size[0] // 2, kernel_size[1] // 2), 
-                                  bias=bias,
-                                  padding_mode=padding_mode)
-        self.conv2 = setup_conv(in_channels=hidden_channels, 
-                                  out_channels=out_channels, 
-                                  kernel_size=kernel_size, 
-                                  padding=(kernel_size[0] // 2, kernel_size[1] // 2), 
-                                  bias=bias, 
-                                  padding_mode=padding_mode)
+        self.ff = ConvTransformerFeedForwardBlock(
+            in_channels=hidden_channels, 
+            filters=filters_ff, 
+            kernel_size=kernel_size, 
+            bias=bias, 
+            layerNorm=layerNorm,
+            padding_mode=padding_mode, 
+            dropout=dropout, 
+            activation=activation,
+            residual_block=ResNetBlock
+        )         
 
         if layerNorm is torch.nn.BatchNorm2d: 
-            self.norm  = layerNorm(num_features=D_out)
-            self.norm1 = layerNorm(num_features=hidden_channels)
-            self.norm2 = layerNorm(num_features=out_channels)
+            self.norm = layerNorm(num_features=D_out)
         elif isinstance(layerNorm, torch.nn.Identity):
-            self.norm = self.norm1 = self.norm2 = layerNorm
+            self.norm = layerNorm
         else:
             raise NotImplementedError
 
         self.dropout  = torch.nn.Dropout(dropout)
-        self.dropout1 = torch.nn.Dropout(dropout)
-        self.dropout2 = torch.nn.Dropout(dropout)
 
         if activation == "relu":
             self.activation =  torch.nn.functional.relu
@@ -260,8 +233,8 @@ class ConvTransformerEncoderBlock(torch.nn.Module):
                                          norm=self.norm,             # want norm layer
                                          activation=self.activation) # and activation
                          )
-        xx = self.dropout1(tensor5D_conv( x, self.conv1, self.norm1, self.activation))
-        x += self.dropout2(tensor5D_conv(xx, self.conv2, self.norm2, self.activation))
+        x += tensor5D_conv(x=x, conv=self.ff)
+
         return x
 
 
@@ -281,7 +254,9 @@ class ConvTransformerStackingEncoderBlock(ConvTransformerEncoderBlock):
     hidden_channels: int
         Number of output channels for residual convolutions. 
     out_channels: int
-        Number of channels of output tensor (output of second residual convolution).
+        Number of channels of output tensor.
+    filters_ff: list of int
+        List of numbers of convolutional filters for feedforward networks.
     kernel_size: list of (int, int)
         Size of the convolutional kernel for the residual layers.
     bias: bool
@@ -307,30 +282,28 @@ class ConvTransformerStackingEncoderBlock(ConvTransformerEncoderBlock):
     dropout: float
         Dropout rate.        
     """
-    def __init__(self, in_channels, D_out, hidden_channels, out_channels,
+    def __init__(self, in_channels, D_out, hidden_channels, out_channels, filters_ff,
                  kernel_size, N_h, D_h, D_k, attention_kernel_size,
                  bias=True, attention_bias=True, layerNorm=torch.nn.BatchNorm2d,
                  padding_mode='circular', stride_qk=1, dropout=0.1, activation="relu"):
 
-        super(ConvTransformerStackingEncoderBlock, self).__init__(in_channels, D_out, hidden_channels,
-                                                                  out_channels, kernel_size, N_h, D_h, D_k,
-                                                                  attention_kernel_size, bias, attention_bias,
-                                                                  layerNorm, padding_mode, stride_qk, 
-                                                                  dropout, activation)
-
-        # feedforward model
-        self.conv1 = setup_conv(in_channels=hidden_channels, 
-                                  out_channels=hidden_channels, 
-                                  kernel_size=kernel_size, 
-                                  padding=(kernel_size[0] // 2, kernel_size[1] // 2), 
-                                  bias=bias,
-                                  padding_mode=padding_mode)
-        self.conv2 = setup_conv(in_channels=hidden_channels, 
-                                  out_channels=hidden_channels, 
-                                  kernel_size=kernel_size, 
-                                  padding=(kernel_size[0] // 2, kernel_size[1] // 2), 
-                                  bias=bias, 
-                                  padding_mode=padding_mode)
+        super(ConvTransformerStackingEncoderBlock, self).__init__(
+            in_channels=in_channels, 
+            D_out=D_out, 
+            hidden_channels=hidden_channels,
+            filters_ff=filters_ff, 
+            kernel_size=kernel_size, 
+            N_h=N_h, 
+            D_h=D_h, 
+            D_k=D_k,
+            attention_kernel_size=attention_kernel_size, 
+            bias=bias, 
+            attention_bias=attention_bias,
+            layerNorm=layerNorm, 
+            padding_mode=padding_mode, 
+            stride_qk=stride_qk, 
+            dropout=dropout, 
+            activation=activation)
         
         # 1x1 convolutions to control number of channels
         self.convr1 = setup_conv(in_channels=D_out+in_channels, 
@@ -339,7 +312,7 @@ class ConvTransformerStackingEncoderBlock(ConvTransformerEncoderBlock):
                                   padding=0, 
                                   bias=bias,
                                   padding_mode=padding_mode)
-        self.convr2 = setup_conv(in_channels=2*hidden_channels, 
+        self.convr2 = setup_conv(in_channels=hidden_channels+self.ff.out_channels, 
                                   out_channels=out_channels, 
                                   kernel_size=(1,1), 
                                   padding=0, 
@@ -347,7 +320,6 @@ class ConvTransformerStackingEncoderBlock(ConvTransformerEncoderBlock):
                                   padding_mode=padding_mode)
         
         if layerNorm is torch.nn.BatchNorm2d:
-            self.norm2 = layerNorm(num_features=hidden_channels)
             self.normr1 = layerNorm(num_features=hidden_channels)
             self.normr2 = layerNorm(num_features=out_channels)
         elif isinstance(layerNorm, torch.nn.Identity):
@@ -360,7 +332,7 @@ class ConvTransformerStackingEncoderBlock(ConvTransformerEncoderBlock):
 
     def forward(self, x, x_mask=None, x_key_padding_mask=None):
         """Pass the input through the encoder layer.
-        
+
         Parameters
         ----------
         x: tensor
@@ -383,8 +355,7 @@ class ConvTransformerStackingEncoderBlock(ConvTransformerEncoderBlock):
                                          activation=self.activation))
 
         # 3. conv2D stage to learn nonlinear transform on each time point individually
-        xx = self.dropout1(tensor5D_conv( x, self.conv1, self.norm1, self.activation))
-        xx = self.dropout2(tensor5D_conv(xx, self.conv2, self.norm2, self.activation))
+        xx = tensor5D_conv(x=x, conv=self.ff)
 
         # 4. Second reduce: control number of output channels for this block
         x = self.dropoutr2(tensor5D_conv(x=torch.cat((x, xx), axis = 2),
@@ -393,6 +364,73 @@ class ConvTransformerStackingEncoderBlock(ConvTransformerEncoderBlock):
                                          activation=self.activation))
         return x
 
+
+class ConvTransformerFeedForwardBlock(torch.nn.Module):
+    """A Transformer block is made up of multi-head self-attention and a feedforward network.
+    The feedforward network is a ResNet.
+    
+    Currently hard-coded to two convolutional layers for the feedforward network.
+    
+    Parameters
+    ----------
+    in_channels: int
+        Number of channels of input tensor.
+    filters: list of int
+        Number of convolutional filters per residual block. 
+    kernel_size: list of (int, int)
+        Size of the convolutional kernel for the residual layers.
+    bias: bool
+        Whether to include bias parameters in the residual-layer convolutions.
+    layerNorm: function
+        Normalization layer.
+    activation: str
+        String specifying nonlinearity.
+    padding_mode: str
+        How to pad the data ('circular' for wrap-around padding on last axis)
+    dropout: float
+        Dropout rate.        
+    """
+    def __init__(self, in_channels, filters, kernel_size, bias=True, 
+                 layerNorm=torch.nn.BatchNorm2d,
+                 padding_mode='circular', dropout=0.1, activation="relu",
+                 residual_block=ResNetBlock):
+
+        super(ConvTransformerFeedForwardBlock, self).__init__()
+        filters = [filters] if isinstance(filters, int) else filters
+        kernel_size = (kernel_size, kernel_size) if isinstance(kernel_size, int) else kernel_size
+
+        self.layers, n_channels = [], in_channels
+        for n_filters in filters:
+            self.layers.append(
+                residual_block(
+                  in_channels=n_channels,
+                  out_channels=n_filters,
+                  kernel_size=kernel_size,
+                  bias=bias,
+                  layerNorm=layerNorm,
+                  padding_mode=padding_mode,
+                  dropout=dropout,
+                  activation=activation)
+            )
+            n_channels = n_filters
+        self.layers = torch.nn.ModuleList(modules=self.layers)
+        self.out_channels = n_channels
+
+    def forward(self, x, x_mask=None, x_key_padding_mask=None):
+        """Pass the input through the encoder layer.
+        
+        Parameters
+        ----------
+        x: tensor
+            The input sequence to the encoder layer.
+        x_mask: tensor 
+            Mask for the input sequence (optional).
+        x_key_padding_mask: tensor 
+            Mask for the x keys per batch (optional).
+        """
+        for layer in self.layers:
+            x = layer(x)        
+        return x
 
 
 class ConvTransformer(torch.nn.Module):
@@ -409,7 +447,11 @@ class ConvTransformer(torch.nn.Module):
                  D_k,
                  D_out, 
                  filters_ff=None,
+                 filters_ff_init=None,
+                 filters_ff_final=None,
                  sa_kernel_sizes=None,
+                 kernel_size_init=(3,3), 
+                 kernel_size_final=(3,3), 
                  bias=True, 
                  attention_bias=True, 
                  layerNorm=torch.nn.BatchNorm2d,
@@ -444,7 +486,7 @@ class ConvTransformer(torch.nn.Module):
         kernel_sizes: list of (int, int)
             Sizes of the convolutional kernel for the self-attention layers.
         filters_ff: list of int
-            Number of channels of feed-forward convolutions.
+            List of numbers of convolutional filters for feedforward networks.
         bias: bool
             Whether to include bias parameters in the residual-layer convolutions.
         attention_bias: bool
@@ -469,6 +511,10 @@ class ConvTransformer(torch.nn.Module):
         sa_kernel_sizes = kernel_sizes if sa_kernel_sizes is None else sa_kernel_sizes
         filters_ff = filters if filters_ff is None else filters_ff
         D_out = filters if D_out is None else D_out
+        
+        filters_ff_init = filters_ff[0] if filters_ff_init is None else filters_ff_init
+        filters_ff_final = filters_ff[0] if filters_ff_final is None else filters_ff_final
+        
         assert len(filters) == len(kernel_sizes)
         assert len(filters) == len(filters_ff)
 
@@ -476,13 +522,28 @@ class ConvTransformer(torch.nn.Module):
         Block = ConvTransformerEncoderBlock if blockType=='adding' else ConvTransformerStackingEncoderBlock
 
         print(blockType, Block)
+
+        if len(filters_ff_init) > 0:
+            self.initial = ConvTransformerFeedForwardBlock(
+                in_channels=in_channels, 
+                filters=filters_ff_init, 
+                kernel_size=kernel_size_init, 
+                bias=bias, 
+                layerNorm=layerNorm,
+                padding_mode=padding_mode, 
+                dropout=dropout, 
+                activation=activation)
+            in_channels = self.initial.out_channels
+        else: 
+            self.initial = torch.nn.Identity()
         
         layers = []
-        for sa_ks, ks, nf, nh, do in zip(sa_kernel_sizes, kernel_sizes, filters, filters_ff, D_out):
+        for sa_ks, ks, nf, nf_ff, do in zip(sa_kernel_sizes, kernel_sizes, filters, filters_ff, D_out):
             layers.append( Block(in_channels=in_channels, 
                                  D_out=do, 
-                                 hidden_channels=nh, 
+                                 hidden_channels=nf, 
                                  out_channels=nf,
+                                 filters_ff=nf_ff,
                                  kernel_size=ks, 
                                  N_h=N_h, 
                                  D_h=D_h, 
@@ -499,10 +560,22 @@ class ConvTransformer(torch.nn.Module):
             in_channels = nf
         self.layers = torch.nn.ModuleList(modules=layers)
 
-        self.final = torch.nn.Conv2d(in_channels=in_channels*seq_length,
-                                     out_channels=out_channels, 
-                                     kernel_size=(1,1), 
-                                     stride=1)
+        
+        if len(filters_ff_final) > 0:
+            self.final = ConvTransformerFeedForwardBlock(
+                in_channels=in_channels*seq_length, 
+                filters=filters_ff_final,
+                kernel_size=kernel_size_final, 
+                bias=bias, 
+                layerNorm=layerNorm,
+                padding_mode=padding_mode, 
+                dropout=dropout, 
+                activation=activation)
+        else:
+            self.final = torch.nn.Conv2d(in_channels=in_channels*seq_length,
+                                         out_channels=out_channels, 
+                                         kernel_size=(1,1), 
+                                         stride=1)
 
     def forward(self, x):
         """Pass the input through the network.
@@ -512,7 +585,8 @@ class ConvTransformer(torch.nn.Module):
         x: tensor
             The input sequence to the encoder layer.
         """
+        x = tensor5D_conv(x=x, conv=self.initial)
         for layer in self.layers:
             x = layer(x)
 
-        return tensor5D_conv(x.contiguous(), self.final, axis=1)
+        return tensor5D_conv(x=x.contiguous(), conv=self.final, axis=1)

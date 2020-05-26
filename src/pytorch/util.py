@@ -189,18 +189,20 @@ def named_network(model_name, n_input_channels, n_output_channels, seq_length, *
 
         from src.pytorch.transformers import ConvTransformer
 
-        print('kwargs internal:', kwargs)
-        
         normLayers = {'BN' : torch.nn.BatchNorm2d,
                       'ID' : torch.nn.Identity(),
                       torch.nn.BatchNorm2d : torch.nn.BatchNorm2d,
                       torch.nn.Identity() : torch.nn.Identity()
                      }                   
-        
+
         model = ConvTransformer(
                          seq_length=seq_length,
                          in_channels=n_input_channels,
                          out_channels=n_output_channels,
+
+                         kernel_size_init=kwargs['kernel_size_init'],
+                         filters_ff_init=kwargs['filters_ff_init'],
+
                          filters=kwargs['filters'],
                          filters_ff=kwargs['filters_ff'],
                          kernel_sizes=[(i,i) for i in kwargs['kernel_sizes']], 
@@ -209,11 +211,15 @@ def named_network(model_name, n_input_channels, n_output_channels, seq_length, *
                          D_k=kwargs['D_k'],
                          D_out=kwargs['D_out'],
                          sa_kernel_sizes=None,
+                         stride_qk=kwargs['stride_qk'],
                          bias=True, 
                          attention_bias=True, 
+
+                         kernel_size_final=kwargs['kernel_size_final'],
+                         filters_ff_final=kwargs['filters_ff_final'],
+
                          layerNorm=normLayers[kwargs['layerNorm']],
                          padding_mode='circular', 
-                         stride_qk=kwargs['stride_qk'],
                          dropout=kwargs['dropout_rate'], 
                          activation="relu",
                          blockType=kwargs['blockType'])
