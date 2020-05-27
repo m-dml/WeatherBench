@@ -20,7 +20,7 @@ max_patience: 50
 eval_every: 2000
 max_epochs: 200
 var_dict: {'geopotential': ('z', [100, 200, 500, 850, 1000]), 'temperature': ('t', [100, 200, 500, 850, 1000]), 'u_component_of_wind': ('u', [100, 200, 500, 850, 1000]), 'v_component_of_wind': ('v', [100, 200, 500, 850, 1000]), 'relative_time': ('time_map', [None]), 'constants': ['lsm','orography','lat2d']}
-dropout_rate: 0.0
+dropout_rate: 0.1
 blockType: stacking
 kernel_sizes: [3, 3, 3]
 kernel_size_init: 3
@@ -31,7 +31,7 @@ nresblocks_ff: [2, 2, 2]
 filters_ff_init: [64, 64]
 filters_ff_final: [128, 128, 128, 2]
 D_out: [24, 24, 24]
-layerNorm: ID
+layerNorm: BN
 N_h: 8
 D_h: 3
 D_k: 3
