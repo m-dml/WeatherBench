@@ -571,7 +571,7 @@ class ConvTransformer(torch.nn.Module):
                 padding_mode=padding_mode, 
                 dropout=dropout, 
                 activation=activation)
-            in_channels = kernel_size_final[-1]
+            in_channels = filters_ff_final[-1]
         else:
             self.aggregator = torch.nn.Identity()
             in_channels = in_channels*seq_length
