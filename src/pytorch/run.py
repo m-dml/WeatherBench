@@ -148,6 +148,11 @@ def setup(conf_exp=None):
     p.add_argument('--D_out', type=int, default=None, nargs='+', help='output dimensionality for self-attention architectures')
     p.add_argument('--stride_qk', type=int, default=1, help='stride of query/key convolutions in self-attention architectures')
     p.add_argument('--filters_ff', type=int, default=None, nargs='+', help='filters for feed-forward convs in TransformerBlock')
+    p.add_argument('--nresblocks_ff', type=int, default=None, nargs='+', help='blocks feed-forward ResNet in TransformerBlock')
+    p.add_argument('--filters_ff_init', type=int, default=None, nargs='+', help='filters for initial convs in Transformer net')
+    p.add_argument('--filters_ff_final', type=int, default=None, nargs='+', help='filters for final convs in Transformer net')
+    p.add_argument('--kernel_size_init', type=int, default=None, help='initial kernel size in Transformer net')
+    p.add_argument('--kernel_size_final', type=int, default=None, help='final kernel size in Transformer net')
     p.add_argument('--blockType', default='adding', type=str, help='type of Transformer block for convTransformer model')
 
     p.add_argument('--loss_fun', type=str, default='mse', help='loss function for model training')
