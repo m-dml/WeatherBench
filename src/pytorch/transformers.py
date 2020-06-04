@@ -507,22 +507,21 @@ class ConvTransformer(torch.nn.Module):
             String specifying which type of convolutional Transformer block. Either 'adding' or 'stacking'.
         """
         super(ConvTransformer, self).__init__()
-    
+
         sa_kernel_sizes = kernel_sizes if sa_kernel_sizes is None else sa_kernel_sizes
         filters_ff = filters if filters_ff is None else filters_ff
         D_out = filters if D_out is None else D_out
-        
+
         filters_ff_init = filters_ff[0] if filters_ff_init is None else filters_ff_init
         filters_ff_final = filters_ff[0] if filters_ff_final is None else filters_ff_final
-        
+
         assert len(filters) == len(kernel_sizes)
         assert len(filters) == len(filters_ff)
 
         assert blockType in ['adding', 'stacking']
         Block = ConvTransformerEncoderBlock if blockType=='adding' else ConvTransformerStackingEncoderBlock
 
-        print(blockType, Block)
-
+        # iniitial layers nonlinearly transform sequence members individiually 
         if len(filters_ff_init) > 0:
             self.initial = ConvTransformerFeedForwardBlock(
                 in_channels=in_channels, 
@@ -536,7 +535,8 @@ class ConvTransformer(torch.nn.Module):
             in_channels = self.initial.out_channels
         else: 
             self.initial = torch.nn.Identity()
-        
+
+        # Transformer layers nonlinearly re-represent whole input sequence 
         layers = []
         for sa_ks, ks, nf, nf_ff, do in zip(sa_kernel_sizes, kernel_sizes, filters, filters_ff, D_out):
             layers.append( Block(in_channels=in_channels, 
@@ -560,9 +560,9 @@ class ConvTransformer(torch.nn.Module):
             in_channels = nf
         self.layers = torch.nn.ModuleList(modules=layers)
 
-        
+        # aggregator works on (re-representation) of input sequence, returns single channel stack 
         if len(filters_ff_final) > 0:
-            self.final = ConvTransformerFeedForwardBlock(
+            self.aggregator = ConvTransformerFeedForwardBlock(
                 in_channels=in_channels*seq_length, 
                 filters=filters_ff_final,
                 kernel_size=kernel_size_final, 
@@ -571,11 +571,16 @@ class ConvTransformer(torch.nn.Module):
                 padding_mode=padding_mode, 
                 dropout=dropout, 
                 activation=activation)
+            in_channels = kernel_size_final[-1]
         else:
-            self.final = torch.nn.Conv2d(in_channels=in_channels*seq_length,
-                                         out_channels=out_channels, 
-                                         kernel_size=(1,1), 
-                                         stride=1)
+            self.aggregator = torch.nn.Identity()
+            in_channels = in_channels*seq_length
+
+        # always end in 1x1 conv2D without follow-up nonlinearity
+        self.final = torch.nn.Conv2d(in_channels=in_channels,
+                                     out_channels=out_channels, 
+                                     kernel_size=(1,1), 
+                                     stride=1)
 
     def forward(self, x):
         """Pass the input through the network.
@@ -588,5 +593,6 @@ class ConvTransformer(torch.nn.Module):
         x = tensor5D_conv(x=x, conv=self.initial)
         for layer in self.layers:
             x = layer(x)
+        x = tensor5D_conv(x=x.contiguous(), conv=self.aggregator, axis=1)
 
-        return tensor5D_conv(x=x.contiguous(), conv=self.final, axis=1)
+        return self.final(x)
