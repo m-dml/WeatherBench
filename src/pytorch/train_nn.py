@@ -5,8 +5,9 @@ from src.pytorch.util import init_torch_device
 from src.pytorch.Dataset import collate_fn_memmap
 
 def create_predictions(model, dg, var_dict={'z' : None, 't' : None}, batch_size=32, verbose=False, 
-                       model_forward=None, device=None, past_times_own_axis=False, mean=None, std=None,
-                       return_xarray=True, dg_meta=None):
+                       model_forward=None, device=None, past_times_own_axis=False, 
+                       rel_time_index = None, rel_time_scale = None,
+                       mean=None, std=None, return_xarray=True, dg_meta=None):
     """Create non-iterative predictions
     Base on create_predictions() function written by S. Rasp (for tensorflow v1.x): 
     https://github.com/pangeo-data/WeatherBench/blob/ced939e20da0432bc816d64c34344e72f9b4cd17/src/train_nn.py#L113    
@@ -18,7 +19,9 @@ def create_predictions(model, dg, var_dict={'z' : None, 't' : None}, batch_size=
     device = init_torch_device() if device is None else device
 
     def collate_fn(batch):
-        return collate_fn_memmap(batch, dg, past_times_own_axis=past_times_own_axis)
+        return collate_fn_memmap(batch, dg, past_times_own_axis=past_times_own_axis, 
+                                 rel_time_index=rel_time_index, rel_time_scale=rel_time_scale)
+    
     test_loader = torch.utils.data.DataLoader(dg, batch_size=batch_size, drop_last=False, collate_fn=collate_fn)
 
     model.eval() # e.g. for batch normalization layers

@@ -111,7 +111,8 @@ def run_exp(exp_id, datadir, res_dir, mmap_mode, model_name,
     dg_meta['valid_time'] = valid_test_time.isel(time=slice(dg_test.lead_time+dg_test.max_input_lag, None)).time
     preds = create_predictions(model, dg_test, var_dict={'z' : None, 't' : None}, device=device,
                                batch_size=batch_size, model_forward=model_forward, mean=mean, std=std,
-                               past_times_own_axis=past_times_own_axis, verbose=True, dg_meta=dg_meta)
+                               past_times_own_axis=past_times_own_axis, rel_time_index = rel_time_index, 
+                               rel_time_scale = rel_time_scale, verbose=True, dg_meta=dg_meta)
     z500_test = load_test_data(f'{datadir}geopotential_500/', 'z')
     t850_test = load_test_data(f'{datadir}temperature_850/', 't')
     rmse_z = compute_weighted_rmse(preds.z, z500_test.isel(time=slice(lead_time+dg_test.max_input_lag, None))).load()
