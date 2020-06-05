@@ -29,7 +29,7 @@ filters: [32, 32, 32, 32, 32, 32]
 filters_ff: [64, 64, 64, 64, 64, 64]
 nresblocks_ff: [1, 1, 1, 1, 1, 1]
 filters_ff_init: []
-filters_ff_final: [128, 128, 128]
+filters_ff_final: [128, 128, 128, 128, 128]
 D_out: [24, 24, 24, 24, 24, 24]
 layerNorm: ID
 N_h: 8
